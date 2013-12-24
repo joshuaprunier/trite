@@ -1,7 +1,7 @@
-trite
+Trite
 =====
 
-Trite is a client/server written in 100% Go that provides customizable transportation of binary InnoDB table files from XtraBackups. Trite stands for *TR*ansport *I*nnodb *T*ables *E*fficiently and is also a nod to the repetitive manual steps that must be done to copy .ibd files to remote MySQL databases. Trite automates that manual process. Copying binary files is much quicker than traditional mysqldump restores when a tables size becomes very large. It also allows partial database restores not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.  
+Trite is a client/server written in 100% Go that provides customizable transportation of binary InnoDB table files from XtraBackups. Trite stands for <b>TR</b>ansport <b>I</b>nnodb <b>T</b>ables <b>E</b>fficiently and is also a nod to the repetitive manual steps that must be done to copy .ibd files to remote MySQL databases. Trite automates that manual process. Copying binary files is much quicker than traditional mysqldump restores when a tables size becomes very large. It also allows partial database restores not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.  
 
 Trite is a good fit if time is a factor and you need to do the following:  
 * Copy very large InnoDB tables
