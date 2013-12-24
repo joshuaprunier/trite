@@ -29,7 +29,7 @@ import (
 
 // Constant date timestamp for sufficiently unique directory naming, second precision
 const (
-  Stamp      = "20060102_150405"
+  Stamp      = "20060102150405"
   DirPerms   = 0755
   FilePerms  = 0644
   MysqlPerms = 0660
@@ -88,7 +88,18 @@ func runServer(tablePath string, backupPath string, port string) {
   http.Handle("/tables/", http.StripPrefix("/tables/", http.FileServer(http.Dir(tablePath))))
   http.Handle("/backups/", http.StripPrefix("/backups/", http.FileServer(http.Dir(backupPath))))
   err := http.ListenAndServe(":"+port, nil)
-  checkErr(err)
+  if err != nil {
+    if err.Error() == "listen tcp :"+port+": bind: address already in use" {
+      fmt.Println()
+      fmt.Println()
+      fmt.Println("ERROR: Port", port, "is already in use!")
+      fmt.Println()
+      fmt.Println()
+      os.Exit(1)
+    } else {
+      checkErr(err)
+    }
+  }
 }
 
 // Walk the backup directory and confirm there are .exp files which is proof --export was run
@@ -117,8 +128,9 @@ func dirWalk(dir string, flag bool) bool {
 
 // Primary workhorse for table & code dumping - it accepts a dumping destination path and db connection info
 func runDump(dir string, dbInfo dbInfoStruct) {
-  dumpdir := dir + "/trite_dump" + time.Now().Format(Stamp)
+  dumpdir := dir+"/"+dbInfo.host+"_dump" + time.Now().Format(Stamp)
   fmt.Println("Dumping to:", dumpdir)
+  fmt.Println()
 
   // Return a database connection with begin transaction
   db := dbConn(dbInfo)
@@ -133,14 +145,37 @@ func runDump(dir string, dbInfo dbInfoStruct) {
   checkErr(err)
 
   // Schema loop
+  count := 0
+  total := 0
+  fmt.Println()
   for _, schema := range schemas {
+    total++ // for schema dump
+    fmt.Print(schema,": ")
     dumpSchema(db, dumpdir, schema)
-    dumpTables(db, dumpdir, schema)
-    dumpProcs(db, dumpdir, schema)
-    dumpFuncs(db, dumpdir, schema)
-    dumpTriggers(db, dumpdir, schema)
-    dumpViews(db, dumpdir, schema)
+
+    count = dumpTables(db, dumpdir, schema)
+    total = total+count
+    fmt.Print(count," tables, ")
+
+    count = dumpProcs(db, dumpdir, schema)
+    total = total+count
+    fmt.Print(count," procedures, ")
+
+    count = dumpFuncs(db, dumpdir, schema)
+    total = total+count
+    fmt.Print(count," functions, ")
+
+    count = dumpTriggers(db, dumpdir, schema)
+    total = total+count
+    fmt.Print(count," triggers, ")
+
+    count = dumpViews(db, dumpdir, schema)
+    total = total+count
+    fmt.Print(count," views\n")
   }
+
+  fmt.Println()
+  fmt.Println(total, "total objects dumped")
 }
 
 // Responsible for retrieving database tables & code from server instance. - it accepts a server url (currently requires http:// and should be recoded to just be ip or name) and db connection info
@@ -292,6 +327,16 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
 
 // Return a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
 func dbConn(dbInfo dbInfoStruct) *sql.DB {
+  // Trap for SIGINT, may need to trap other signals in the future as well
+  sigChan := make(chan os.Signal, 1)
+  signal.Notify(sigChan, os.Interrupt)
+  go func() {
+    for sig := range sigChan {
+      fmt.Println()
+      fmt.Println(sig, "signal caught!")
+    }
+  }()
+
   // If password is blank prompt user - Not perfect as it prints the password typed to the screen
   if dbInfo.pass == "" {
     fmt.Println("Enter password: ")
@@ -362,7 +407,8 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 }
 
 // Create files with the results of a show create table statments. Does an entire schema passed to it. Hardcoded /tables subdir.
-func dumpTables(db *sql.DB, dumpdir string, schema string) {
+func dumpTables(db *sql.DB, dumpdir string, schema string) int {
+  count := 0
   derr := os.Mkdir(dumpdir+"/"+schema+"/tables", DirPerms)
   checkErr(derr)
 
@@ -386,14 +432,19 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) {
 
     werr := ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), FilePerms)
     checkErr(werr)
+
+    count++
   }
 
   // Commit transaction
   err = tx.Commit()
+
+  return count
 }
 
 // Create files with the results of a show create procedure statments. Does an entire schema passed to it. Hardcoded /procedures subdir.
-func dumpProcs(db *sql.DB, dumpdir string, schema string) {
+func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
+  count := 0
   derr := os.Mkdir(dumpdir+"/"+schema+"/procedures", DirPerms)
   checkErr(derr)
 
@@ -419,14 +470,19 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) {
 
     werr := ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, FilePerms)
     checkErr(werr)
+
+    count++
   }
 
   // Commit transaction
   err = tx.Commit()
+
+  return count
 }
 
 // Create files with the results of a show create function statments. Does an entire schema passed to it. Hardcoded /functions subdir.
-func dumpFuncs(db *sql.DB, dumpdir string, schema string) {
+func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
+  count := 0
   derr := os.Mkdir(dumpdir+"/"+schema+"/functions", DirPerms)
   checkErr(derr)
 
@@ -452,14 +508,20 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) {
 
     werr := ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, FilePerms)
     checkErr(werr)
+
+    count++
   }
 
   // Commit transaction
   err = tx.Commit()
+
+  return count
 }
 
 // Create files with the results of a show create trigger statments. Does an entire schema passed to it. Hardcoded /triggers subdir.
-func dumpTriggers(db *sql.DB, dumpdir string, schema string) {
+func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
+  count := 0
+
   derr := os.Mkdir(dumpdir+"/"+schema+"/triggers", DirPerms)
   checkErr(derr)
 
@@ -485,14 +547,19 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) {
 
     werr := ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, FilePerms)
     checkErr(werr)
+
+    count++
   }
 
   // Commit transaction
   err = tx.Commit()
+
+  return count
 }
 
 // Create files with the results of a show create view statments. Does an entire schema passed to it. Hardcoded /views subdir.
-func dumpViews(db *sql.DB, dumpdir string, schema string) {
+func dumpViews(db *sql.DB, dumpdir string, schema string) int {
+  count := 0
   derr := os.Mkdir(dumpdir+"/"+schema+"/views", DirPerms)
   checkErr(derr)
 
@@ -518,10 +585,14 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) {
 
     werr := ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, FilePerms)
     checkErr(werr)
+
+    count++
   }
 
   // Commit transaction
   err = tx.Commit()
+
+  return count
 }
 
 // Too simple a task for function?
@@ -860,14 +931,14 @@ func main() {
   start := time.Now()
 
   // Trap for SIGINT, may need to trap other signals in the future as well
-  sigChan := make(chan os.Signal, 1)
-  signal.Notify(sigChan, os.Interrupt)
-  go func() {
-    for sig := range sigChan {
-      fmt.Println()
-      fmt.Println(sig, "signal caught!")
-    }
-  }()
+//  sigChan := make(chan os.Signal, 1)
+//  signal.Notify(sigChan, os.Interrupt)
+//  go func() {
+//    for sig := range sigChan {
+//      fmt.Println()
+//      fmt.Println(sig, "signal caught!")
+//    }
+//  }()
 
   // Get working directory
   wd, err := os.Getwd()
