@@ -232,7 +232,6 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
   var active int32 = 0 //limits # of concurrent applyTables()
   wg := new(sync.WaitGroup)
   for _, schema := range schemas {
-    //if schema == "jobCntrl/" {
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
     checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
@@ -259,7 +258,6 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
         go applyTables(db, table, schema, taburl, backurl, uid, gid, mysqldir, &active, wg)
       }
     }
-    //}
   }
   wg.Wait()
 
@@ -930,16 +928,6 @@ func showUsage() {
 func main() {
   start := time.Now()
 
-  // Trap for SIGINT, may need to trap other signals in the future as well
-//  sigChan := make(chan os.Signal, 1)
-//  signal.Notify(sigChan, os.Interrupt)
-//  go func() {
-//    for sig := range sigChan {
-//      fmt.Println()
-//      fmt.Println(sig, "signal caught!")
-//    }
-//  }()
-
   // Get working directory
   wd, err := os.Getwd()
   checkErr(err)
@@ -965,6 +953,7 @@ func main() {
   flagClient := flag.Bool("client", false, "Run in client mode")
   flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
   flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
+  flagDatadir := flag.String("datadir", mysqldir, "MySQL data directory")
 
   // Dump flags
   flagDump := flag.Bool("dump", false, "Run in dump mode")
@@ -996,6 +985,12 @@ func main() {
     *flagDbHost = "localhost"
   }
 
+  // If MySQL datadir is supplied overwrite what we get from /etc/passwd
+  if *flagDatadir != "" {
+    mysqldir = *flagDatadir
+  }
+
+  // Populate dbInfo struct
   dbInfo := dbInfoStruct{user: *flagDbUser, pass: *flagDbPass, host: *flagDbHost, port: *flagDbPort, sock: *flagDbSock, mysqldir: mysqldir, uid: uid, gid: gid}
 
   // Detect what functionality is being requested
