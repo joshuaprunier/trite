@@ -92,7 +92,7 @@ func schemaList(db *sql.DB) []string {
     err := rows.Scan(&database)
     common.CheckErr(err)
     if database == "mysql" || database == "information_schema" || database == "performance_schema" {
-      // do nothing
+      continue // do nothing
     } else {
       schemas = append(schemas, database)
     }
@@ -128,13 +128,13 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
   common.CheckErr(dberr)
 
   tx.Exec("use " + schema)
+  var tableName string
+  var ignore string
+  var stmt string
   for rows.Next() {
-    var tableName string
     err := rows.Scan(&tableName)
     common.CheckErr(err)
 
-    var ignore string
-    var stmt string
     qerr := tx.QueryRow("show create table "+tableName).Scan(&ignore, &stmt)
     common.CheckErr(qerr)
 
@@ -164,8 +164,8 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
   common.CheckErr(dberr)
 
   tx.Exec("use " + schema)
+  var procName string
   for rows.Next() {
-    var procName string
     err := rows.Scan(&procName)
     common.CheckErr(err)
 
@@ -202,8 +202,8 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
   common.CheckErr(dberr)
 
   tx.Exec("use " + schema)
+  var funcName string
   for rows.Next() {
-    var funcName string
     err := rows.Scan(&funcName)
     common.CheckErr(err)
 
@@ -241,8 +241,8 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
   common.CheckErr(dberr)
 
   tx.Exec("use " + schema)
+  var trigName string
   for rows.Next() {
-    var trigName string
     err := rows.Scan(&trigName)
     common.CheckErr(err)
 
@@ -279,8 +279,8 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
   common.CheckErr(dberr)
 
   tx.Exec("use " + schema)
+  var view string
   for rows.Next() {
-    var view string
     err := rows.Scan(&view)
     common.CheckErr(err)
 
