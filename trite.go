@@ -56,6 +56,18 @@ type (
     Collation      string
     Db_collation   string
   }
+
+  downloadInfoStruct struct {
+    taburl     string
+    backurl    string
+    schema     string
+    table      string
+    mysqldir   string
+    uid        int
+    gid        int
+    engine     string
+    extensions []string
+  }
 )
 
 // Extremely robust and overworked error catch all. ;-) Errors that bubble to the surface need to be handled elsewhere, this is for debugging or unexpected exceptions mostly
@@ -232,10 +244,10 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
   var active int32 = 0 //limits # of concurrent applyTables()
   wg := new(sync.WaitGroup)
   for _, schema := range schemas {
+
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
     checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
-    fmt.Println("Copying tables for", schemaTrimmed)
 
     // Parse html and get a list of tables to transport
     tablesDir := getUrl(taburl + schema + "/tables")
@@ -244,6 +256,9 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
 
     if len(tables) > 0 { // ignore when path is empty
       for _, table := range tables {
+
+        downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: uid, gid: gid}
+
         // Infinite loop to keep active go routines to 5 or less
         for {
           if active < int32(workers) {
@@ -255,7 +270,7 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
 
         wg.Add(1)
         atomic.AddInt32(&active, 1)
-        go applyTables(db, table, schema, taburl, backurl, uid, gid, mysqldir, &active, wg)
+        go downloadTable(db, downloadInfo, &active, wg)
       }
     }
   }
@@ -268,7 +283,6 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
     tx.Exec("set session foreign_key_checks=0;")
     tx.Exec("set session sql_log_bin=0;") // need to check if even logging
 
-    //if schema == "jobCntrl/" {
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
     checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
@@ -313,7 +327,6 @@ func runClient(url string, port string, workers uint, dbInfo dbInfoStruct) {
         applyObjects(tx, function, "function", schema, taburl)
       }
     }
-    //}
     // Commit transaction
     cerr := tx.Commit()
     checkErr(cerr)
@@ -362,7 +375,7 @@ func dbConn(dbInfo dbInfoStruct) *sql.DB {
   perr := db.Ping()
   if perr != nil {
     fmt.Println()
-    fmt.Println("Unable to access database!")
+    fmt.Println("Unable to access database! Possible incorrect password.")
     fmt.Println()
     os.Exit(1)
   }
@@ -624,7 +637,6 @@ func parseAnchor(r *http.Response) []string {
 
 // Confirm that a schema exists. Look for a more elegant solution, db ping with schema possibly.
 func checkSchema(db *sql.DB, schema string, url string) {
-  fmt.Println()
   var exist string
   err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exist)
   if err != nil {
@@ -633,7 +645,9 @@ func checkSchema(db *sql.DB, schema string, url string) {
     stmt, _ := ioutil.ReadAll(resp.Body)
     db.QueryRow(string(stmt))
 
+    fmt.Println()
     fmt.Println("Created schema", schema)
+    fmt.Println()
   }
 }
 
@@ -647,44 +661,96 @@ func parseFileName(text string) (string, string) {
   return file, ret
 }
 
-// This function is called for each table to be copied. It sets session some session level variables then determines the tables engine type. Exported table files are then downloaded from the server and imported to the database. All database actions are performed in a transaction.
-func applyTables(db *sql.DB, table string, schema string, taburl string, backurl string, uid int, gid int, mysqldir string, active *int32, wg *sync.WaitGroup) {
-  tabstart := time.Now()
-  schemaTrimmed := strings.Trim(schema, "/")
-  filename, _ := parseFileName(table)
-  //  fmt.Println(filename)
-
-  // Start db transaction
-  tx, dberr := db.Begin()
-  checkErr(dberr)
-  // make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
-  tx.Exec("set session foreign_key_checks=0;")
-  tx.Exec("set session sql_log_bin=0;") // need to check if even logging
-  tx.Exec("set session wait_timeout=18000;")
-  tx.Exec("use " + schemaTrimmed)
+// Responsible for downloading files from the HTTP server. Tied to applyTable and importTable. InnoDB centric right now. Need to add MyISAM support.
+func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+  filename, _ := parseFileName(downloadInfo.table)
 
   // Ensure backup exists and check the engine type
-  checkresp1, headerr := http.Head(backurl + schema + filename + ".ibd") // Assume InnoDB first
+  // Make separate function to determine engine type
+  checkresp1, headerr := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".ibd") // Assume InnoDB first
   checkErr(headerr)
   var engine string
-  var ext string
+  extensions := []string{}
   if checkresp1.StatusCode == 200 {
     engine = "InnoDB"
+    extensions = append(extensions,".ibd")
+    extensions = append(extensions,".exp")
   } else {
-    checkresp2, headerr := http.Head(backurl + schema + filename + ".MYD") // Check for MyISAM
+    checkresp2, headerr := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
     checkErr(headerr)
 
     if checkresp2.StatusCode == 200 {
       engine = "MyISAM"
+      extensions = append(extensions,".MYI")
+      extensions = append(extensions,".MYD")
+      extensions = append(extensions,".frm")
     } else {
       engine = "not handled"
     }
   }
 
-  switch engine {
+  // Update downloadInfo struct with engine type and extensions array
+  downloadInfo.engine = engine
+  downloadInfo.extensions = extensions
+
+  // Loop through and download all files from extensions array
+  for _,extension := range extensions {
+    tmpfile := downloadInfo.mysqldir + filename + extension + ".trite"
+    urlfile := downloadInfo.backurl + downloadInfo.schema + filename + extension
+
+    // Request and write file
+    fo, err := os.Create(tmpfile)
+    checkErr(err)
+    defer fo.Close()
+
+    // Chown to mysql user
+    os.Chown(tmpfile, downloadInfo.uid, downloadInfo.gid)
+    os.Chmod(tmpfile, MysqlPerms)
+
+    // Download files from trite server
+    w := bufio.NewWriter(fo)
+    ibdresp := getUrl(urlfile)
+    defer ibdresp.Body.Close()
+
+    sizeServer := ibdresp.ContentLength
+    sizeDown, rerr := w.ReadFrom(ibdresp.Body) // int of file size returned here
+    checkErr(rerr)
+    w.Flush() // Just in case
+
+    // Check if size of file downloaded matches size on server -- Add retry ability
+    if sizeDown != sizeServer {
+      fmt.Println("\n\nFile download size does not match size on server!")
+      fmt.Println(tmpfile, "has been removed.")
+
+      // Remove partial file download
+      rmerr := os.Remove(tmpfile)
+      checkErr(rmerr)
+    }
+  }
+
+  // Call applyTables
+  applyTables(db, downloadInfo, active, wg)
+}
+
+// This function is called for each table to be copied. It sets session some session level variables then determines the tables engine type. Exported table files are then downloaded from the server and imported to the database. All database actions are performed in a transaction.
+func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+  filename, _ := parseFileName(downloadInfo.table)
+  schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
+
+  // Start db transaction
+  tx, dberr := db.Begin()
+  checkErr(dberr)
+
+  // make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
+  tx.Exec("set session foreign_key_checks=0;")
+  tx.Exec("set session sql_log_bin=0;") // need to check if even logging
+  tx.Exec("set session wait_timeout=18000;") // 30 mins
+  tx.Exec("use " + schemaTrimmed)
+
+  switch downloadInfo.engine {
   case "InnoDB":
     // Get table create
-    resp := getUrl(taburl + schema + "tables/" + table)
+    resp := getUrl(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)
 
@@ -692,25 +758,34 @@ func applyTables(db *sql.DB, table string, schema string, taburl string, backurl
     _, execerr := tx.Exec("drop table if exists " + filename)
     checkErr(execerr)
 
-    // Create table and discard its tablespace
+    // Create table
     _, err := tx.Exec(string(stmt))
     checkErr(err)
 
+    // Discard the tablespace
     _, eerr := tx.Exec("alter table " + filename + " discard tablespace")
     checkErr(eerr)
 
-    // Download the ibd file
-    ibdfile := mysqldir + schema + filename + ".ibd"
-    ext = ".ibd"
-    downloadTable(tx, ibdfile, backurl, schema, filename, uid, gid, ext)
+    // Lock the table just in case
+    _, lerr := tx.Exec("lock table " + filename + " write")
+    checkErr(lerr)
 
-    // Download the exp file
-    expfile := mysqldir + schema + filename + ".exp"
-    ext = ".exp"
-    downloadTable(tx, expfile, backurl, schema, filename, uid, gid, ext)
+    // rename happens here
+    for _,extension := range downloadInfo.extensions {
+      mverr := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      checkErr(mverr)
+    }
 
-    // Import InnoDB table to the database
-    importTable(tx, filename)
+    // Import tablespace and analyze otherwise there will be no index statistics
+    _, err1 := tx.Exec("alter table " + filename + " import tablespace")
+    checkErr(err1)
+
+    _, err2 := tx.Exec("analyze local table " + filename)
+    checkErr(err2)
+
+    // Unlock the table
+    _, uerr := tx.Exec("unlock tables")
+    checkErr(uerr)
 
     // Commit transaction
     err = tx.Commit()
@@ -721,20 +796,11 @@ func applyTables(db *sql.DB, table string, schema string, taburl string, backurl
     _, execerr := tx.Exec("drop table if exists " + filename)
     checkErr(execerr)
 
-    // Download the frm file
-    frmfile := mysqldir + schema + filename + ".frm"
-    ext = ".frm"
-    downloadTable(tx, frmfile, backurl, schema, filename, uid, gid, ext)
-
-    // Download the MYD file
-    mydfile := mysqldir + schema + filename + ".MYD"
-    ext = ".MYD"
-    downloadTable(tx, mydfile, backurl, schema, filename, uid, gid, ext)
-
-    // Download the MYI file
-    myifile := mysqldir + schema + filename + ".MYI"
-    ext = ".MYI"
-    downloadTable(tx, myifile, backurl, schema, filename, uid, gid, ext)
+    // Rename happens here
+    for _,extension := range downloadInfo.extensions {
+      mverr := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      checkErr(mverr)
+    }
 
     // Commit transaction
     err := tx.Commit()
@@ -749,57 +815,10 @@ func applyTables(db *sql.DB, table string, schema string, taburl string, backurl
     fmt.Println()
   }
 
-  fmt.Println("   ", filename, "took", time.Since(tabstart))
-
   // Decrement active go routine counter
+  fmt.Println(schemaTrimmed+"."+filename+" has been restored")
   atomic.AddInt32(active, -1)
   wg.Done()
-}
-
-// Responsible for downloading files from the HTTP server. Tied to applyTable and importTable. InnoDB centric right now. Need to add MyISAM support.
-func downloadTable(tx *sql.Tx, mysqlfile string, backurl string, schema string, filename string, uid int, gid int, ext string) {
-  // Request and write file
-  fo, err := os.Create(mysqlfile)
-  checkErr(err)
-  defer fo.Close()
-
-  w := bufio.NewWriter(fo)
-  ibdresp := getUrl(backurl + schema + filename + ext)
-  defer ibdresp.Body.Close()
-
-  sizeServer := ibdresp.ContentLength
-  sizeDown, rerr := w.ReadFrom(ibdresp.Body) // int of file size returned here
-  checkErr(rerr)
-  w.Flush() // Just in case
-  //  fmt.Println("  ",filename,"ibd copy took",time.Since(tabstart))
-
-  // Check if size of file downloaded matches size on server -- Add retry ability
-  if sizeDown != sizeServer {
-    // Drop table -- CLEANUP
-    _, execerr := tx.Exec("drop table if exists " + filename)
-    checkErr(execerr)
-
-    // Remove partial file download
-    rmerr := os.Remove(mysqlfile)
-    checkErr(rmerr)
-
-    fmt.Println("\n\nFile download size does not match size on server!\n" + filename + " has been cleaned up, code will now panic.\n\n")
-    log.Panic()
-  }
-
-  // Chown to mysql user
-  os.Chown(mysqlfile, uid, gid)
-  os.Chmod(mysqlfile, MysqlPerms)
-}
-
-// Responsible for importing the tablespace once the downloader finishes. Directly called from downloadTable() and will proably have to be pulled apart to get concurrency working properly.
-func importTable(tx *sql.Tx, filename string) {
-  // Import tablespace and analyze otherwise there will be no index statistics
-  _, err1 := tx.Exec("alter table " + filename + " import tablespace")
-  checkErr(err1)
-  //  fmt.Println("  ",filename,"import took",time.Since(tabstart))
-  _, err2 := tx.Exec("analyze local table " + filename)
-  checkErr(err2)
 }
 
 // Generic MySQL code applier for stored procedures, functions, views, triggers. Events need to be added, missing any others?
