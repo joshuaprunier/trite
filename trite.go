@@ -3,7 +3,6 @@ package main
 import (
   "flag"
   "fmt"
-  "log"
   "os/user"
   "os"
   "runtime/pprof"
@@ -75,6 +74,7 @@ func main() {
 
   // Profiling flag
   var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+  var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 
   // MySQL flags
   flagDbUser := flag.String("user", "", "MySQL: User")
@@ -108,7 +108,7 @@ func main() {
   if *cpuprofile != "" {
     f, err := os.Create(*cpuprofile)
     if err != nil {
-      log.Fatal(err)
+      common.CheckErr(err)
     }
     pprof.StartCPUProfile(f)
     defer pprof.StopCPUProfile()
@@ -152,6 +152,15 @@ func main() {
     if len(flag.Args()) == 0 {
       showUsage()
     }
+  }
+
+  if *memprofile != "" {
+    f, err := os.Create(*memprofile)
+    if err != nil {
+      common.CheckErr(err)
+    }
+    pprof.WriteHeapProfile(f)
+    defer f.Close()
   }
 
   fmt.Println()
