@@ -15,7 +15,7 @@ import (
   "github.com/joshuaprunier/trite/server"
 )
 
-// Show command usage
+// ShowUsage prints a help screen which details all three modes command line flags
 func showUsage() {
   fmt.Println(`
   Usage of trite:
@@ -58,6 +58,7 @@ func showUsage() {
   `)
 }
 
+// Main
 func main() {
   start := time.Now()
 
@@ -72,7 +73,7 @@ func main() {
   gid, _ := strconv.Atoi(mysqlUser.Gid)
   mysqldir := mysqlUser.HomeDir + "/"
 
-  // Profiling flag
+  // Profiling flags
   var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
   var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 
@@ -99,12 +100,12 @@ func main() {
   flagBackupPath := flag.String("backup_path", "", "SERVER: Path to database backup files")
   flagPort := flag.String("server_port", "12000", "CLIENT/SERVER: HTTP port number") // also used by client
 
-  // Intercept -help
+  // Intercept -help and show usage screen
   flagHelp := flag.Bool("help", false, "Command Usage")
 
   flag.Parse()
 
-  // Profiling
+  // CPU Profiling
   if *cpuprofile != "" {
     f, err := os.Create(*cpuprofile)
     if err != nil {
@@ -125,7 +126,7 @@ func main() {
   }
 
   // Populate dbInfo struct
-  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock, Mysqldir: mysqldir, Uid: uid, Gid: gid}
+  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock, Mysqldir: mysqldir, UID: uid, GID: gid}
 
   // Detect what functionality is being requested
   if *flagClient {
@@ -154,6 +155,7 @@ func main() {
     }
   }
 
+  // Memory Profiling
   if *memprofile != "" {
     f, err := os.Create(*memprofile)
     if err != nil {

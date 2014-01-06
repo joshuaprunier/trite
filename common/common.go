@@ -3,7 +3,7 @@ package common
 import (
   "database/sql"
   "fmt"
-  _ "github.com/go-sql-driver/mysql"
+  _ "github.com/go-sql-driver/mysql" // Go MySQL driver
   "io"
   "log"
   "os"
@@ -15,6 +15,7 @@ import (
 
 // Type definitions
 type (
+  // DbInfoStruct defines database connection information
   DbInfoStruct struct {
     User     string
     Pass     string
@@ -22,28 +23,29 @@ type (
     Port     string
     Sock     string
     Mysqldir string
-    Uid      int
-    Gid      int
+    UID      int
+    GID      int
   }
 
+  // CreateInfoStruct stores creation information for procedures, functions, triggers and views
   CreateInfoStruct struct {
-    Name           string
-    Sql_mode       string
-    Create         string
-    Charset_client string
-    Collation      string
-    Db_collation   string
+    Name          string
+    SqlMode       string
+    Create        string
+    CharsetClient string
+    Collation     string
+    DbCollation   string
   }
 )
 
-// Extremely robust and overworked error catch all. ;-) Errors that bubble to the surface need to be handled elsewhere, this is for debugging or unexpected exceptions mostly
+// CheckErr is an error handling catch all. Frequent errors that come through here should be handled in the specific portion of the code where they originate.
 func CheckErr(e error) {
   if e != nil {
     log.Panic(e)
   }
 }
 
-// Split a file name into 2 pieces and return strings of the base and 3 digit extension
+// ParseFileName splits a file name and returns two strings of the base and 3 digit extension
 func ParseFileName(text string) (string, string) {
   ext := strings.Split(text, ".")
   ext = ext[cap(ext)-1:]
@@ -53,7 +55,7 @@ func ParseFileName(text string) (string, string) {
   return file, ret
 }
 
-// Return a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
+// DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
 func DbConn(dbInfo DbInfoStruct) *sql.DB {
   // Trap for SIGINT, may need to trap other signals in the future as well
   sigChan := make(chan os.Signal, 1)
@@ -100,7 +102,7 @@ func DbConn(dbInfo DbInfoStruct) *sql.DB {
   return db
 }
 
-// Borrowed from the crypto/ssh/terminal sub repo to accept a password from stdin without local echo.
+// ReadPassword is borrowed from the crypto/ssh/terminal sub repo to accept a password from stdin without local echo.
 // http://godoc.org/code.google.com/p/go.crypto/ssh/terminal#Terminal.ReadPassword
 func ReadPassword(fd int) ([]byte, error) {
   var oldState syscall.Termios

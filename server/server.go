@@ -4,14 +4,14 @@ import (
   "fmt"
   "io/ioutil"
   "net/http"
-  _ "net/http/pprof"
+  _ "net/http/pprof" // http server profiling
   "os"
   "strings"
 
   "github.com/joshuaprunier/trite/common"
 )
 
-// Light weight HTTP server implimentation - it accepts a port number and two directory paths, one for db object create definitions and another for an xtrabackup processed with the --export flag
+// RunServer receives a port number and a directory path for create definitions output by trite in dump mode and another directory path with an xtrabackup processed with the --export flag
 func RunServer(tablePath string, backupPath string, port string) {
   // Make sure directory passed in has trailing slash
   if strings.HasSuffix(backupPath, "/") == false {
@@ -29,11 +29,14 @@ func RunServer(tablePath string, backupPath string, port string) {
     os.Exit(1)
   }
 
+  // Start HTTP server listener
   fmt.Println()
   fmt.Println("Starting server listening on port", port)
   http.Handle("/tables/", http.StripPrefix("/tables/", http.FileServer(http.Dir(tablePath))))
   http.Handle("/backups/", http.StripPrefix("/backups/", http.FileServer(http.Dir(backupPath))))
   err := http.ListenAndServe(":"+port, nil)
+
+  // Check if port is already in use
   if err != nil {
     if err.Error() == "listen tcp :"+port+": bind: address already in use" {
       fmt.Println()
@@ -48,7 +51,7 @@ func RunServer(tablePath string, backupPath string, port string) {
   }
 }
 
-// Walk the backup directory and confirm there are .exp files which is proof --export was run
+// dirWalk the backup directory and confirm there are .exp files which is proof --export was run
 func dirWalk(dir string, flag bool) bool {
   files, ferr := ioutil.ReadDir(dir)
   common.CheckErr(ferr)

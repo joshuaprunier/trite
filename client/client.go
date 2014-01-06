@@ -1,6 +1,5 @@
 package client
 
-// Good amount of the std library and go-sql driver for MySQL interaction plus Google's net html sub repo (critical for handling HTTP server dir/file parsing. Any changes to http.Dir formating will break current code! Is there a better or more efficient way to do client/server?
 import (
   "bufio"
   "code.google.com/p/go.net/html"
@@ -18,9 +17,9 @@ import (
   "github.com/joshuaprunier/trite/common"
 )
 
-const MysqlPerms = 0660
+const mysqlPerms = 0660
 
-// Type definitions
+// downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
   downloadInfoStruct struct {
     taburl     string
@@ -35,16 +34,16 @@ type (
   }
 )
 
-// Responsible for retrieving database tables & code from server instance. - it accepts a server url (currently requires http:// and should be recoded to just be ip or name) and db connection info
+// RunClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct) {
 
   // Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
   mysqldir := dbInfo.Mysqldir
-  uid := dbInfo.Uid
-  gid := dbInfo.Gid
+  uid := dbInfo.UID
+  gid := dbInfo.GID
 
   // Make sure mysql datadir is writable
-  ferr := ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), MysqlPerms)
+  ferr := ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
   if ferr != nil {
     fmt.Println()
     fmt.Println("The MySQL data directory is not writable as this user!")
@@ -81,12 +80,12 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   }
 
   // Parse html and get a list of schemas to transport
-  base := getUrl(taburl)
+  base := getURL(taburl)
   defer base.Body.Close()
   schemas := parseAnchor(base)
 
   // Loop through all schemas and apply tables
-  var active int32 = 0 //limits # of concurrent applyTables()
+  var active int32 //limit number of concurrent running applyTables()
   wg := new(sync.WaitGroup)
   for _, schema := range schemas {
 
@@ -95,7 +94,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
     checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
 
     // Parse html and get a list of tables to transport
-    tablesDir := getUrl(taburl + schema + "/tables")
+    tablesDir := getURL(taburl + schema + "/tables")
     defer tablesDir.Body.Close()
     tables := parseAnchor(tablesDir)
 
@@ -133,7 +132,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
     checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
     tx.Exec("use " + schemaTrimmed)
 
-    triggersDir := getUrl(taburl + schema + "/triggers")
+    triggersDir := getURL(taburl + schema + "/triggers")
     defer triggersDir.Body.Close()
     triggers := parseAnchor(triggersDir)
     fmt.Println("Applying triggers for", schemaTrimmed)
@@ -143,7 +142,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
       }
     }
 
-    viewsDir := getUrl(taburl + schema + "/views")
+    viewsDir := getURL(taburl + schema + "/views")
     defer viewsDir.Body.Close()
     views := parseAnchor(viewsDir)
     fmt.Println("Applying views for", schemaTrimmed)
@@ -153,7 +152,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
       }
     }
 
-    proceduresDir := getUrl(taburl + schema + "/procedures")
+    proceduresDir := getURL(taburl + schema + "/procedures")
     defer proceduresDir.Body.Close()
     procedures := parseAnchor(proceduresDir)
     fmt.Println("Applying procedures for", schemaTrimmed)
@@ -163,7 +162,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
       }
     }
 
-    functionsDir := getUrl(taburl + schema + "/functions")
+    functionsDir := getURL(taburl + schema + "/functions")
     defer functionsDir.Body.Close()
     functions := parseAnchor(functionsDir)
     fmt.Println("Applying functions for", schemaTrimmed)
@@ -181,15 +180,15 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   db.Exec("set global innodb_import_table_from_xtrabackup=0;")
 }
 
-// Too simple a task for function?
-func getUrl(u string) *http.Response {
+// getURL is a small http.Get() wrapper
+func getURL(u string) *http.Response {
   resp, err := http.Get(u)
   common.CheckErr(err)
 
   return resp
 }
 
-// Parses the html response from the server and returns a slice of directories & files. This requires the google net/html sub repo.
+// parseAnchor returns a slice of files and directories from a HTTP response. This function requires the google net/html sub repo.
 func parseAnchor(r *http.Response) []string {
   txt := []string{}
   tok := html.NewTokenizer(r.Body)
@@ -210,12 +209,12 @@ func parseAnchor(r *http.Response) []string {
   return txt
 }
 
-// Confirm that a schema exists. Look for a more elegant solution, db ping with schema possibly.
+// checkSchema confirms that a schema exists.
 func checkSchema(db *sql.DB, schema string, url string) {
   var exist string
   err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exist)
   if err != nil {
-    resp := getUrl(url)
+    resp := getURL(url)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)
     db.QueryRow(string(stmt))
@@ -226,7 +225,7 @@ func checkSchema(db *sql.DB, schema string, url string) {
   }
 }
 
-// Responsible for downloading files from the HTTP server. Tied to applyTable and importTable. InnoDB centric right now. Need to add MyISAM support.
+// downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
 func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
   filename, _ := common.ParseFileName(downloadInfo.table)
 
@@ -270,11 +269,11 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
     // Chown to mysql user
     os.Chown(tmpfile, downloadInfo.uid, downloadInfo.gid)
-    os.Chmod(tmpfile, MysqlPerms)
+    os.Chmod(tmpfile, mysqlPerms)
 
     // Download files from trite server
     w := bufio.NewWriter(fo)
-    ibdresp := getUrl(urlfile)
+    ibdresp := getURL(urlfile)
     defer ibdresp.Body.Close()
 
     sizeServer := ibdresp.ContentLength
@@ -297,7 +296,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
   applyTables(db, downloadInfo, active, wg)
 }
 
-// This function is called for each table to be copied. It sets session some session level variables then determines the tables engine type. Exported table files are then downloaded from the server and imported to the database. All database actions are performed in a transaction.
+// applyTables performs all of the database actions required to restore a table
 func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
   filename, _ := common.ParseFileName(downloadInfo.table)
   schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
@@ -315,7 +314,7 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
   switch downloadInfo.engine {
   case "InnoDB":
     // Get table create
-    resp := getUrl(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
+    resp := getURL(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)
 
@@ -386,11 +385,11 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
   wg.Done()
 }
 
-// Generic MySQL code applier for stored procedures, functions, views, triggers. Events need to be added, missing any others?
+// applyObjects is a generic function for creating procedures, functions, views and triggers.
 func applyObjects(tx *sql.Tx, object string, objType string, schema string, taburl string) {
   filename, _ := common.ParseFileName(object)
   tx.Exec("drop " + objType + " if exists " + filename)
-  resp := getUrl(taburl + schema + objType + "s/" + object) // ssssso hacky
+  resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
   defer resp.Body.Close()
   stmt, _ := ioutil.ReadAll(resp.Body)
 
@@ -399,18 +398,18 @@ func applyObjects(tx *sql.Tx, object string, objType string, schema string, tabu
   common.CheckErr(jerr)
 
   // Set session level variables to recreate stored code properly
-  if objInfo.Sql_mode != "" {
-    tx.Exec("set session sql_mode = '" + objInfo.Sql_mode + "'")
+  if objInfo.SqlMode != "" {
+    tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
   }
-  if objInfo.Charset_client != "" {
-    tx.Exec("set session character_set_client = '" + objInfo.Charset_client + "'")
+  if objInfo.CharsetClient != "" {
+    tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")
   }
   if objInfo.Collation != "" {
     tx.Exec("set session collation_connection = '" + objInfo.Collation + "'")
   }
   // Should I be setting this????
-  if objInfo.Db_collation != "" {
-    tx.Exec("set session collation_database = '" + objInfo.Db_collation + "'")
+  if objInfo.DbCollation != "" {
+    tx.Exec("set session collation_database = '" + objInfo.DbCollation + "'")
   }
 
   // Create object
