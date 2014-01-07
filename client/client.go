@@ -57,7 +57,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   db := common.DbConn(dbInfo)
   defer db.Close()
   db.SetMaxIdleConns(1)
-  db.Exec("set global innodb_import_table_from_xtrabackup=1;")
+  db.Exec("set global innodb_import_table_from_xtrabackup=1")
 
   // URL variables
   taburl := "http://" + url + ":" + port + "/tables/"
@@ -124,8 +124,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   for _, schema := range schemas {
     tx, err := db.Begin()
     common.CheckErr(err)
-    tx.Exec("set session foreign_key_checks=0;")
-    tx.Exec("set session sql_log_bin=0;") // need to check if even logging
+    tx.Exec("set session foreign_key_checks=0")
 
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
@@ -177,7 +176,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   }
 
   // Reset global db variables
-  db.Exec("set global innodb_import_table_from_xtrabackup=0;")
+  db.Exec("set global innodb_import_table_from_xtrabackup=0")
 }
 
 // getURL is a small http.Get() wrapper
@@ -306,9 +305,8 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
   common.CheckErr(dberr)
 
   // make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
-  tx.Exec("set session foreign_key_checks=0;")
-  tx.Exec("set session sql_log_bin=0;") // need to check if even logging
-  tx.Exec("set session wait_timeout=18000;") // 30 mins
+  tx.Exec("set session foreign_key_checks=0")
+  tx.Exec("set session wait_timeout=18000") // 30 mins
   tx.Exec("use " + schemaTrimmed)
 
   switch downloadInfo.engine {

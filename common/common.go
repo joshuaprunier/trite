@@ -81,10 +81,10 @@ func DbConn(dbInfo DbInfoStruct) *sql.DB {
   var db *sql.DB
   var err error
   if dbInfo.Sock != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/")
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/?sql_log_bin=0")
     CheckErr(err)
   } else if dbInfo.Host != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/")
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/?sql_log_bin=0")
     CheckErr(err)
   } else {
     fmt.Println("should be no else")
