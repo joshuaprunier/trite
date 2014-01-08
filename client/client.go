@@ -306,7 +306,6 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 
   // make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
   tx.Exec("set session foreign_key_checks=0")
-  tx.Exec("set session wait_timeout=18000") // 30 mins
   tx.Exec("use " + schemaTrimmed)
 
   switch downloadInfo.engine {

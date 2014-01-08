@@ -13,6 +13,8 @@ import (
   "unsafe"
 )
 
+const mysqlTimeout = "3600" // 1 hour - must be string
+
 // Type definitions
 type (
   // DbInfoStruct defines database connection information
@@ -81,10 +83,10 @@ func DbConn(dbInfo DbInfoStruct) *sql.DB {
   var db *sql.DB
   var err error
   if dbInfo.Sock != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/?sql_log_bin=0")
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/?sql_log_bin=0&wait_timeout="+mysqlTimeout)
     CheckErr(err)
   } else if dbInfo.Host != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/?sql_log_bin=0")
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/?sql_log_bin=0&wait_timeout="+mysqlTimeout)
     CheckErr(err)
   } else {
     fmt.Println("should be no else")
