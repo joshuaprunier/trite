@@ -19,7 +19,7 @@ func RunServer(tablePath string, backupPath string, port string) {
   }
 
   // Ensure the backup has been prepared for transporting with --export
-  check := dirWalk(backupPath, false)
+  check := verifyBackup(backupPath, false)
   if check == false {
     fmt.Println()
     fmt.Println()
@@ -51,17 +51,17 @@ func RunServer(tablePath string, backupPath string, port string) {
   }
 }
 
-// dirWalk the backup directory and confirm there are .exp files which is proof --export was run
-func dirWalk(dir string, flag bool) bool {
+// verifyBackup traverses the backup directory and confirms there are .exp files which is proof --export was run
+func verifyBackup(dir string, flag bool) bool {
   files, ferr := ioutil.ReadDir(dir)
   common.CheckErr(ferr)
   for _, file := range files {
-    // Check if file is a .exp, that means --export has been performed on the backup
+    // Check if file has a .exp extension, that means --export has been performed on the backup
     _, ext := common.ParseFileName(file.Name())
 
-    // Handle sub dirs recursive function
+    // Recursive function call for subdirectories
     if file.IsDir() {
-      flag := dirWalk(dir+file.Name()+"/", flag)
+      flag := verifyBackup(dir+file.Name()+"/", flag)
       if flag == true {
         return flag
       }
@@ -74,4 +74,3 @@ func dirWalk(dir string, flag bool) bool {
   }
   return flag
 }
-
