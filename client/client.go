@@ -122,57 +122,10 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
 
   // Loop through all schemas and apply triggers, views, procedures & functions
   for _, schema := range schemas {
-    tx, err := db.Begin()
-    common.CheckErr(err)
-    tx.Exec("set session foreign_key_checks=0")
-
-    // Check if schema exists
-    schemaTrimmed := strings.Trim(schema, "/")
-    checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
-    tx.Exec("use " + schemaTrimmed)
-
-    triggersDir := getURL(taburl + schema + "/triggers")
-    defer triggersDir.Body.Close()
-    triggers := parseAnchor(triggersDir)
-    fmt.Println("Applying triggers for", schemaTrimmed)
-    if len(triggers) > 0 { // ignore when path is empty
-      for _, trigger := range triggers {
-        applyObjects(tx, trigger, "trigger", schema, taburl)
-      }
-    }
-
-    viewsDir := getURL(taburl + schema + "/views")
-    defer viewsDir.Body.Close()
-    views := parseAnchor(viewsDir)
-    fmt.Println("Applying views for", schemaTrimmed)
-    if len(views) > 0 { // ignore when path is empty
-      for _, view := range views {
-        applyObjects(tx, view, "view", schema, taburl)
-      }
-    }
-
-    proceduresDir := getURL(taburl + schema + "/procedures")
-    defer proceduresDir.Body.Close()
-    procedures := parseAnchor(proceduresDir)
-    fmt.Println("Applying procedures for", schemaTrimmed)
-    if len(procedures) > 0 { // ignore when path is empty
-      for _, procedure := range procedures {
-        applyObjects(tx, procedure, "procedure", schema, taburl)
-      }
-    }
-
-    functionsDir := getURL(taburl + schema + "/functions")
-    defer functionsDir.Body.Close()
-    functions := parseAnchor(functionsDir)
-    fmt.Println("Applying functions for", schemaTrimmed)
-    if len(functions) > 0 { // ignore when path is empty
-      for _, function := range functions {
-        applyObjects(tx, function, "function", schema, taburl)
-      }
-    }
-    // Commit transaction
-    cerr := tx.Commit()
-    common.CheckErr(cerr)
+    applyObjects(db, "trigger", schema, taburl)
+    applyObjects(db, "view", schema, taburl)
+    applyObjects(db, "procedure", schema, taburl)
+    applyObjects(db, "function", schema, taburl)
   }
 
   // Reset global db variables
@@ -208,7 +161,7 @@ func parseAnchor(r *http.Response) []string {
   return txt
 }
 
-// checkSchema confirms that a schema exists.
+// checkSchema confirms that a schema exists
 func checkSchema(db *sql.DB, schema string, url string) {
   var exist string
   err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exist)
@@ -383,34 +336,59 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
-func applyObjects(tx *sql.Tx, object string, objType string, schema string, taburl string) {
-  filename, _ := common.ParseFileName(object)
-  tx.Exec("drop " + objType + " if exists " + filename)
-  resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
-  defer resp.Body.Close()
-  stmt, _ := ioutil.ReadAll(resp.Body)
-
-  objInfo := new(common.CreateInfoStruct)
-  jerr := json.Unmarshal(stmt, &objInfo)
-  common.CheckErr(jerr)
-
-  // Set session level variables to recreate stored code properly
-  if objInfo.SqlMode != "" {
-    tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
-  }
-  if objInfo.CharsetClient != "" {
-    tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")
-  }
-  if objInfo.Collation != "" {
-    tx.Exec("set session collation_connection = '" + objInfo.Collation + "'")
-  }
-  // Should I be setting this????
-  if objInfo.DbCollation != "" {
-    tx.Exec("set session collation_database = '" + objInfo.DbCollation + "'")
-  }
-
-  // Create object
-  _, err := tx.Exec(objInfo.Create)
+func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
+  // Start transaction
+  tx, err := db.Begin()
   common.CheckErr(err)
+  tx.Exec("set session foreign_key_checks=0")
+
+  // Check if schema exists
+  schemaTrimmed := strings.Trim(schema, "/")
+  checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
+  tx.Exec("use " + schemaTrimmed)
+
+  loc := getURL(taburl+schema+"/"+objType+"s")
+  defer loc.Body.Close()
+  objects := parseAnchor(loc)
+  fmt.Println("Applying",objType+"s for", schemaTrimmed)
+
+  // Only continue if there are objects to create
+  if len(objects) > 0 { // ignore when path is empty
+    for _, object := range objects {
+
+      filename, _ := common.ParseFileName(object)
+      tx.Exec("drop " + objType + " if exists " + filename)
+      resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
+      defer resp.Body.Close()
+      stmt, _ := ioutil.ReadAll(resp.Body)
+
+      objInfo := new(common.CreateInfoStruct)
+      jerr := json.Unmarshal(stmt, &objInfo)
+      common.CheckErr(jerr)
+
+      // Set session level variables to recreate stored code properly
+      if objInfo.SqlMode != "" {
+        tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
+      }
+      if objInfo.CharsetClient != "" {
+        tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")
+      }
+      if objInfo.Collation != "" {
+        tx.Exec("set session collation_connection = '" + objInfo.Collation + "'")
+      }
+      if objInfo.DbCollation != "" {
+        tx.Exec("set session collation_database = '" + objInfo.DbCollation + "'")
+      }
+
+      // Create object
+      _, err := tx.Exec(objInfo.Create)
+      common.CheckErr(err)
+
+    }
+  }
+
+  // Commit transaction
+  cerr := tx.Commit()
+  common.CheckErr(cerr)
 }
 
