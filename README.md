@@ -63,7 +63,6 @@ Trite is run in one of three modes: client, dump or server
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -datadir: MySQL data directory (default is mysql users homedir, mainly used for multi instances)
     -server_host: Server name or ip hosting the backup and dump files
     -server_port: Port of trite server (default 12000)
     -workers: Number of copy threads (default 1)

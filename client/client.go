@@ -38,9 +38,20 @@ type (
 func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct) {
 
   // Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
-  mysqldir := dbInfo.Mysqldir
   uid := dbInfo.UID
   gid := dbInfo.GID
+
+  // Make a database connection
+  db := common.DbConn(dbInfo)
+  defer db.Close()
+  db.SetMaxIdleConns(1)
+  db.Exec("set global innodb_import_table_from_xtrabackup=1")
+
+  // Get MySQL datadir
+  var ignore string
+  var mysqldir string
+  err := db.QueryRow("show variables like 'datadir'").Scan(&ignore,&mysqldir)
+  common.CheckErr(err)
 
   // Make sure mysql datadir is writable
   ferr := ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
@@ -52,12 +63,6 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   } else {
     os.Remove(mysqldir + "/trite_test")
   }
-
-  // Make a database connection
-  db := common.DbConn(dbInfo)
-  defer db.Close()
-  db.SetMaxIdleConns(1)
-  db.Exec("set global innodb_import_table_from_xtrabackup=1")
 
   // URL variables
   taburl := "http://" + url + ":" + port + "/tables/"
@@ -163,17 +168,17 @@ func parseAnchor(r *http.Response) []string {
 
 // checkSchema confirms that a schema exists
 func checkSchema(db *sql.DB, schema string, url string) {
-  var exist string
-  err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exist)
-  if err != nil {
+  var exists string
+  err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exists)
+
+  if exists == "" {
     resp := getURL(url)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)
-    db.QueryRow(string(stmt))
+    _,err = db.Exec(string(stmt))
+    common.CheckErr(err)
 
-    fmt.Println()
-    fmt.Println("Created schema", schema)
-    fmt.Println()
+    fmt.Println("	Created schema", schema)
   }
 }
 
@@ -344,7 +349,6 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 
   // Check if schema exists
   schemaTrimmed := strings.Trim(schema, "/")
-  checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
   tx.Exec("use " + schemaTrimmed)
 
   loc := getURL(taburl+schema+"/"+objType+"s")

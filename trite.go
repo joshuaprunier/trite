@@ -30,7 +30,6 @@ func showUsage() {
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -datadir: MySQL data directory (default is mysql users homedir, mainly used for multi instances)
     -server_host: Server name or ip hosting the backup and dump files
     -server_port: Port of trite server (default 12000)
     -workers: Number of copy threads (default 1)
@@ -71,7 +70,6 @@ func main() {
   common.CheckErr(err)
   uid, _ := strconv.Atoi(mysqlUser.Uid)
   gid, _ := strconv.Atoi(mysqlUser.Gid)
-  mysqldir := mysqlUser.HomeDir + "/"
 
   // Profiling flags
   var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -88,7 +86,6 @@ func main() {
   flagClient := flag.Bool("client", false, "Run in client mode")
   flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
   flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
-  flagDatadir := flag.String("datadir", mysqldir, "MySQL data directory")
 
   // Dump flags
   flagDump := flag.Bool("dump", false, "Run in dump mode")
@@ -120,13 +117,8 @@ func main() {
     *flagDbHost = "localhost"
   }
 
-  // If MySQL datadir is supplied overwrite what we get from /etc/passwd
-  if *flagDatadir != "" {
-    mysqldir = *flagDatadir
-  }
-
   // Populate dbInfo struct
-  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock, Mysqldir: mysqldir, UID: uid, GID: gid}
+  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock, UID: uid, GID: gid}
 
   // Detect what functionality is being requested
   if *flagClient {

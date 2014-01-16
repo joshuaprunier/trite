@@ -24,7 +24,6 @@ type (
     Host     string
     Port     string
     Sock     string
-    Mysqldir string
     UID      int
     GID      int
   }
