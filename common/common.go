@@ -24,6 +24,7 @@ type (
     Host     string
     Port     string
     Sock     string
+    Schema   string
     UID      int
     GID      int
   }
@@ -57,7 +58,7 @@ func ParseFileName(text string) (string, string) {
 }
 
 // DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
-func DbConn(dbInfo DbInfoStruct) *sql.DB {
+func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
   // Trap for SIGINT, may need to trap other signals in the future as well
   sigChan := make(chan os.Signal, 1)
   signal.Notify(sigChan, os.Interrupt)
@@ -82,25 +83,25 @@ func DbConn(dbInfo DbInfoStruct) *sql.DB {
   var db *sql.DB
   var err error
   if dbInfo.Sock != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/?sql_log_bin=0&wait_timeout="+mysqlTimeout)
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout)
     CheckErr(err)
   } else if dbInfo.Host != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/?sql_log_bin=0&wait_timeout="+mysqlTimeout)
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout)
     CheckErr(err)
   } else {
     fmt.Println("should be no else")
   }
 
   // Ping database to verify credentials
-  perr := db.Ping()
-  if perr != nil {
-    fmt.Println()
-    fmt.Println("Unable to access database! Possible incorrect password.")
-    fmt.Println()
-    os.Exit(1)
-  }
+  err = db.Ping()
+//  if err != nil {
+//    fmt.Println()
+//    fmt.Println("Unable to access database! Possible incorrect password.")
+//    fmt.Println()
+//    os.Exit(1)
+//  }
 
-  return db
+  return db, err
 }
 
 // ReadPassword is borrowed from the crypto/ssh/terminal sub repo to accept a password from stdin without local echo.

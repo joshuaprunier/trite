@@ -125,13 +125,13 @@ func main() {
     if *flagServerHost == "" || *flagDbUser == "" {
       showUsage()
     } else {
-      client.RunClient(*flagServerHost, *flagPort, *flagWorkers, dbInfo)
+      client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
     }
   } else if *flagDump {
     if *flagDbUser == "" {
       showUsage()
     } else {
-      dump.RunDump(*flagDumpDir, dbInfo)
+      dump.RunDump(*flagDumpDir, &dbInfo)
     }
   } else if *flagServer {
     if *flagTablePath == "" || *flagBackupPath == "" {

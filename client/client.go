@@ -35,22 +35,29 @@ type (
 )
 
 // RunClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct) {
+func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruct) {
 
   // Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
   uid := dbInfo.UID
   gid := dbInfo.GID
 
   // Make a database connection
-  db := common.DbConn(dbInfo)
+  db, err := common.DbConn(dbInfo)
   defer db.Close()
+
+  // Problem connecting to database
+  if err != nil {
+    fmt.Println(err)
+    os.Exit(1)
+  }
+
   db.SetMaxIdleConns(1)
   db.Exec("set global innodb_import_table_from_xtrabackup=1")
 
   // Get MySQL datadir
   var ignore string
   var mysqldir string
-  err := db.QueryRow("show variables like 'datadir'").Scan(&ignore,&mysqldir)
+  err = db.QueryRow("show variables like 'datadir'").Scan(&ignore,&mysqldir)
   common.CheckErr(err)
 
   // Make sure mysql datadir is writable
@@ -96,7 +103,7 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
 
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
-    checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
+    checkSchema(dbInfo, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
 
     // Parse html and get a list of tables to transport
     tablesDir := getURL(taburl + schema + "/tables")
@@ -125,12 +132,12 @@ func RunClient(url string, port string, workers uint, dbInfo common.DbInfoStruct
   }
   wg.Wait()
 
-  // Loop through all schemas and apply triggers, views, procedures & functions
+  // Loop through all schemas again and apply triggers, views, procedures & functions
+  objectTypes := []string{"trigger","view","procedure","function"}
   for _, schema := range schemas {
-    applyObjects(db, "trigger", schema, taburl)
-    applyObjects(db, "view", schema, taburl)
-    applyObjects(db, "procedure", schema, taburl)
-    applyObjects(db, "function", schema, taburl)
+    for _, objectType := range objectTypes {
+      applyObjects(db, objectType, schema, taburl)
+    }
   }
 
   // Reset global db variables
@@ -167,11 +174,17 @@ func parseAnchor(r *http.Response) []string {
 }
 
 // checkSchema confirms that a schema exists
-func checkSchema(db *sql.DB, schema string, url string) {
-  var exists string
-  err := db.QueryRow("select 'Y' from information_schema.schemata where schema_name=?", schema).Scan(&exists)
+func checkSchema(dbInfo *common.DbInfoStruct, schema string, url string) {
+  dbInfo.Schema = schema
+  db,err := common.DbConn(dbInfo)
+  defer db.Close()
 
-  if exists == "" {
+  // If schema does not exist create it
+  if err != nil {
+    dbInfo.Schema = ""
+    db,err := common.DbConn(dbInfo)
+    defer db.Close()
+
     resp := getURL(url)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)

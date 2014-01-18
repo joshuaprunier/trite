@@ -30,21 +30,27 @@ type (
 )
 
 // RunDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
-func RunDump(dir string, dbInfo common.DbInfoStruct) {
+func RunDump(dir string, dbInfo *common.DbInfoStruct) {
   dumpdir := dir+"/"+dbInfo.Host+"_dump" + time.Now().Format(stamp)
   fmt.Println("Dumping to:", dumpdir)
   fmt.Println()
 
   // Return a database connection
-  db := common.DbConn(dbInfo)
+  db,err := common.DbConn(dbInfo)
   defer db.Close()
-  db.SetMaxIdleConns(1)
+
+  // Problem connecting to database
+  if err != nil {
+    fmt.Println(err)
+    os.Exit(1)
+  }
 
   // Get a list of schemas in the target database
+  db.SetMaxIdleConns(1)
   schemas := schemaList(db)
 
   // Create dump directory
-  err := os.Mkdir(dumpdir, dirPerms)
+  err = os.Mkdir(dumpdir, dirPerms)
   common.CheckErr(err)
 
   // Schema loop
@@ -303,4 +309,3 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
 
   return count
 }
-
