@@ -52,7 +52,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   }
 
   db.SetMaxIdleConns(1)
-  db.Exec("set global innodb_import_table_from_xtrabackup=1")
+  _, err = db.Exec("set global innodb_import_table_from_xtrabackup=1")
 
   // Get MySQL datadir
   var ignore string
@@ -61,8 +61,8 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   common.CheckErr(err)
 
   // Make sure mysql datadir is writable
-  ferr := ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
-  if ferr != nil {
+  err = ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
+  if err != nil {
     fmt.Println()
     fmt.Println("The MySQL data directory is not writable as this user!")
     fmt.Println()
@@ -84,6 +84,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
     fmt.Println("Check that the server is running, port number is correct or that a firewall is not blocking access")
     os.Exit(0)
   }
+
   _, ping2 := http.Head(backurl)
   if ping2 != nil {
     fmt.Println("Problem connecting to", backurl)
@@ -141,7 +142,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   }
 
   // Reset global db variables
-  db.Exec("set global innodb_import_table_from_xtrabackup=0")
+  _, err = db.Exec("set global innodb_import_table_from_xtrabackup=0")
 }
 
 // getURL is a small http.Get() wrapper
@@ -201,19 +202,20 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
   // Ensure backup exists and check the engine type
   // Make separate function to determine engine type
-  checkresp1, headerr := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".ibd") // Assume InnoDB first
-  common.CheckErr(headerr)
+  resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".ibd") // Assume InnoDB first
+  common.CheckErr(err)
+
   var engine string
   extensions := []string{}
-  if checkresp1.StatusCode == 200 {
+  if resp.StatusCode == 200 {
     engine = "InnoDB"
     extensions = append(extensions,".ibd")
     extensions = append(extensions,".exp")
   } else {
-    checkresp2, headerr := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
-    common.CheckErr(headerr)
+    resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
+    common.CheckErr(err)
 
-    if checkresp2.StatusCode == 200 {
+    if resp.StatusCode == 200 {
       engine = "MyISAM"
       extensions = append(extensions,".MYI")
       extensions = append(extensions,".MYD")
@@ -247,8 +249,9 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
     defer ibdresp.Body.Close()
 
     sizeServer := ibdresp.ContentLength
-    sizeDown, rerr := w.ReadFrom(ibdresp.Body) // int of file size returned here
-    common.CheckErr(rerr)
+    var sizeDown int64
+    sizeDown, err = w.ReadFrom(ibdresp.Body) // int of file size returned here
+    common.CheckErr(err)
     w.Flush() // Just in case
 
     // Check if size of file downloaded matches size on server -- Add retry ability
@@ -257,8 +260,8 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
       fmt.Println(tmpfile, "has been removed.")
 
       // Remove partial file download
-      rmerr := os.Remove(tmpfile)
-      common.CheckErr(rmerr)
+      err = os.Remove(tmpfile)
+      common.CheckErr(err)
     }
   }
 
@@ -272,12 +275,12 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
   schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  tx, err := db.Begin()
+  common.CheckErr(err)
 
   // make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
-  tx.Exec("set session foreign_key_checks=0")
-  tx.Exec("use " + schemaTrimmed)
+  _, err = tx.Exec("set session foreign_key_checks=0")
+  _, err = tx.Exec("use " + schemaTrimmed)
 
   switch downloadInfo.engine {
   case "InnoDB":
@@ -287,37 +290,37 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
     stmt, _ := ioutil.ReadAll(resp.Body)
 
     // Drop table if exists
-    _, execerr := tx.Exec("drop table if exists " + filename)
-    common.CheckErr(execerr)
+    _, err := tx.Exec("drop table if exists " + filename)
+    common.CheckErr(err)
 
     // Create table
-    _, err := tx.Exec(string(stmt))
+    _, err = tx.Exec(string(stmt))
     common.CheckErr(err)
 
     // Discard the tablespace
-    _, eerr := tx.Exec("alter table " + filename + " discard tablespace")
-    common.CheckErr(eerr)
+    _, err = tx.Exec("alter table " + filename + " discard tablespace")
+    common.CheckErr(err)
 
     // Lock the table just in case
-    _, lerr := tx.Exec("lock table " + filename + " write")
-    common.CheckErr(lerr)
+    _, err = tx.Exec("lock table " + filename + " write")
+    common.CheckErr(err)
 
     // rename happens here
     for _,extension := range downloadInfo.extensions {
-      mverr := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
-      common.CheckErr(mverr)
+      err := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      common.CheckErr(err)
     }
 
     // Import tablespace and analyze otherwise there will be no index statistics
-    _, err1 := tx.Exec("alter table " + filename + " import tablespace")
-    common.CheckErr(err1)
+    _, err = tx.Exec("alter table " + filename + " import tablespace")
+    common.CheckErr(err)
 
-    _, err2 := tx.Exec("analyze local table " + filename)
-    common.CheckErr(err2)
+    _, err = tx.Exec("analyze local table " + filename)
+    common.CheckErr(err)
 
     // Unlock the table
-    _, uerr := tx.Exec("unlock tables")
-    common.CheckErr(uerr)
+    _, err = tx.Exec("unlock tables")
+    common.CheckErr(err)
 
     // Commit transaction
     err = tx.Commit()
@@ -325,17 +328,17 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 
   case "MyISAM":
     // Drop table if exists
-    _, execerr := tx.Exec("drop table if exists " + filename)
-    common.CheckErr(execerr)
+    _, err := tx.Exec("drop table if exists " + filename)
+    common.CheckErr(err)
 
     // Rename happens here
     for _,extension := range downloadInfo.extensions {
-      mverr := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
-      common.CheckErr(mverr)
+      err = os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      common.CheckErr(err)
     }
 
     // Commit transaction
-    err := tx.Commit()
+    err = tx.Commit()
     common.CheckErr(err)
 
   default:
@@ -358,11 +361,11 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
   // Start transaction
   tx, err := db.Begin()
   common.CheckErr(err)
-  tx.Exec("set session foreign_key_checks=0")
 
-  // Check if schema exists
+  // Use schema
   schemaTrimmed := strings.Trim(schema, "/")
-  tx.Exec("use " + schemaTrimmed)
+  _, err = tx.Exec("set session foreign_key_checks=0")
+  _, err = tx.Exec("use " + schemaTrimmed)
 
   loc := getURL(taburl+schema+"/"+objType+"s")
   defer loc.Body.Close()
@@ -374,38 +377,38 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
     for _, object := range objects {
 
       filename, _ := common.ParseFileName(object)
-      tx.Exec("drop " + objType + " if exists " + filename)
+      _, err := tx.Exec("drop " + objType + " if exists " + filename)
       resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
       defer resp.Body.Close()
       stmt, _ := ioutil.ReadAll(resp.Body)
 
-      objInfo := new(common.CreateInfoStruct)
-      jerr := json.Unmarshal(stmt, &objInfo)
-      common.CheckErr(jerr)
+      var objInfo common.CreateInfoStruct
+      err = json.Unmarshal(stmt, &objInfo)
+      common.CheckErr(err)
 
       // Set session level variables to recreate stored code properly
       if objInfo.SqlMode != "" {
-        tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
+        _, err = tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
       }
       if objInfo.CharsetClient != "" {
-        tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")
+        _, err = tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")
       }
       if objInfo.Collation != "" {
-        tx.Exec("set session collation_connection = '" + objInfo.Collation + "'")
+        _, err = tx.Exec("set session collation_connection = '" + objInfo.Collation + "'")
       }
       if objInfo.DbCollation != "" {
-        tx.Exec("set session collation_database = '" + objInfo.DbCollation + "'")
+        _, err = tx.Exec("set session collation_database = '" + objInfo.DbCollation + "'")
       }
 
       // Create object
-      _, err := tx.Exec(objInfo.Create)
+      _, err = tx.Exec(objInfo.Create)
       common.CheckErr(err)
 
     }
   }
 
   // Commit transaction
-  cerr := tx.Commit()
-  common.CheckErr(cerr)
+  err = tx.Commit()
+  common.CheckErr(err)
 }
 

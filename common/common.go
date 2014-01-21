@@ -14,6 +14,7 @@ import (
 )
 
 const mysqlTimeout = "3600" // 1 hour - must be string
+const mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping thousands of tables
 
 // Type definitions
 type (
@@ -62,6 +63,7 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
   // Trap for SIGINT, may need to trap other signals in the future as well
   sigChan := make(chan os.Signal, 1)
   signal.Notify(sigChan, os.Interrupt)
+
   go func() {
     for sig := range sigChan {
       fmt.Println()
@@ -73,9 +75,7 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
   if dbInfo.Pass == "" {
     fmt.Println("Enter password: ")
     pwd, err := ReadPassword(0)
-    if err != nil {
-      fmt.Println(err)
-    }
+    CheckErr(err)
     dbInfo.Pass = string(pwd)
   }
 
@@ -83,10 +83,10 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
   var db *sql.DB
   var err error
   if dbInfo.Sock != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout)
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
     CheckErr(err)
   } else if dbInfo.Host != "" {
-    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout)
+    db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
     CheckErr(err)
   } else {
     fmt.Println("should be no else")
@@ -94,12 +94,6 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
 
   // Ping database to verify credentials
   err = db.Ping()
-//  if err != nil {
-//    fmt.Println()
-//    fmt.Println("Unable to access database! Possible incorrect password.")
-//    fmt.Println()
-//    os.Exit(1)
-//  }
 
   return db, err
 }

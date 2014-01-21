@@ -105,9 +105,7 @@ func main() {
   // CPU Profiling
   if *cpuprofile != "" {
     f, err := os.Create(*cpuprofile)
-    if err != nil {
-      common.CheckErr(err)
-    }
+    common.CheckErr(err)
     pprof.StartCPUProfile(f)
     defer pprof.StopCPUProfile()
   }
@@ -150,9 +148,7 @@ func main() {
   // Memory Profiling
   if *memprofile != "" {
     f, err := os.Create(*memprofile)
-    if err != nil {
-      common.CheckErr(err)
-    }
+    common.CheckErr(err)
     pprof.WriteHeapProfile(f)
     defer f.Close()
   }

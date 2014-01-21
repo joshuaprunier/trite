@@ -36,7 +36,7 @@ func RunDump(dir string, dbInfo *common.DbInfoStruct) {
   fmt.Println()
 
   // Return a database connection
-  db,err := common.DbConn(dbInfo)
+  db, err := common.DbConn(dbInfo)
   defer db.Close()
 
   // Problem connecting to database
@@ -94,59 +94,67 @@ func schemaList(db *sql.DB) []string {
 
   // Get schema list
   schemas := []string{}
+  var database string
   for rows.Next() {
-    var database string
-    err := rows.Scan(&database)
+    err = rows.Scan(&database)
     common.CheckErr(err)
+
     if database == "mysql" || database == "information_schema" || database == "performance_schema" {
       continue // do nothing
     } else {
       schemas = append(schemas, database)
     }
   }
+
   return schemas
 }
 
 // dumpSchema creates a file with the schema creation statement.
 func dumpSchema(db *sql.DB, dumpdir string, schema string) {
-  derr := os.Mkdir(dumpdir+"/"+schema, dirPerms)
-  common.CheckErr(derr)
+  var err error
+  err = os.Mkdir(dumpdir+"/"+schema, dirPerms)
+  common.CheckErr(err)
 
   var ignore string
   var stmt string
-  err := db.QueryRow("show create schema "+schema).Scan(&ignore, &stmt)
+  err = db.QueryRow("show create schema "+schema).Scan(&ignore, &stmt)
   common.CheckErr(err)
 
-  werr := ioutil.WriteFile(dumpdir+"/"+schema+"/"+schema+".sql", []byte(stmt+";\n"), filePerms)
-  common.CheckErr(werr)
+  err = ioutil.WriteFile(dumpdir+"/"+schema+"/"+schema+".sql", []byte(stmt+";\n"), filePerms)
+  common.CheckErr(err)
 }
 
 // dumpTables creates files containing table creation statments. It processes all tables for the schema passed to it. The /tables directory is hardcoded and expected by trite client code.
 func dumpTables(db *sql.DB, dumpdir string, schema string) int {
+  var err error
   count := 0
-  derr := os.Mkdir(dumpdir+"/"+schema+"/tables", dirPerms)
-  common.CheckErr(derr)
+  err = os.Mkdir(dumpdir+"/"+schema+"/tables", dirPerms)
+  common.CheckErr(err)
 
-  rows, err := db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'BASE TABLE'")
+  var rows *sql.Rows
+  rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'BASE TABLE'")
   common.CheckErr(err)
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  var tx *sql.Tx
+  tx, err = db.Begin()
+  common.CheckErr(err)
 
-  tx.Exec("use " + schema)
+  _, err = tx.Exec("use " + schema)
+  common.CheckErr(err)
+
   var tableName string
   var ignore string
   var stmt string
   for rows.Next() {
-    err := rows.Scan(&tableName)
+    err = rows.Scan(&tableName)
     common.CheckErr(err)
 
-    qerr := tx.QueryRow("show create table "+tableName).Scan(&ignore, &stmt)
-    common.CheckErr(qerr)
+    err = tx.QueryRow("show create table "+tableName).Scan(&ignore, &stmt)
+    common.CheckErr(err)
 
-    werr := ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), filePerms)
-    common.CheckErr(werr)
+    err = ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), filePerms)
+    common.CheckErr(err)
 
     count++
   }
@@ -159,32 +167,38 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpProcs creates files containing procedure creation statments. It processes all procedures for the schema passed to it. The /procedures directory is hardcoded and expected by trite client code.
 func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
+  var err error
   count := 0
-  derr := os.Mkdir(dumpdir+"/"+schema+"/procedures", dirPerms)
-  common.CheckErr(derr)
+  err = os.Mkdir(dumpdir+"/"+schema+"/procedures", dirPerms)
+  common.CheckErr(err)
 
-  rows, err := db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'PROCEDURE'")
+  var rows *sql.Rows
+  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'PROCEDURE'")
   common.CheckErr(err)
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  var tx *sql.Tx
+  tx, err = db.Begin()
+  common.CheckErr(err)
 
-  tx.Exec("use " + schema)
+  _, err = tx.Exec("use " + schema)
+  common.CheckErr(err)
+
   var procName string
   for rows.Next() {
-    err := rows.Scan(&procName)
+    err = rows.Scan(&procName)
     common.CheckErr(err)
 
-    procInfo := new(common.CreateInfoStruct)
-    qerr := tx.QueryRow("show create procedure "+procName).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
-    common.CheckErr(qerr)
+    var procInfo common.CreateInfoStruct
+    err = tx.QueryRow("show create procedure "+procName).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
+    common.CheckErr(err)
 
-    jbyte, jerr := json.MarshalIndent(procInfo, "", "  ")
-    common.CheckErr(jerr)
+    var jbyte []byte
+    jbyte, err = json.MarshalIndent(procInfo, "", "  ")
+    common.CheckErr(err)
 
-    werr := ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, filePerms)
-    common.CheckErr(werr)
+    err = ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, filePerms)
+    common.CheckErr(err)
 
     count++
   }
@@ -197,32 +211,38 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpFuncs creates files containing function creation statments. It processes all functions for the schema passed to it. The /functions directory is hardcoded and expected by trite client code.
 func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
+  var err error
   count := 0
-  derr := os.Mkdir(dumpdir+"/"+schema+"/functions", dirPerms)
-  common.CheckErr(derr)
+  err = os.Mkdir(dumpdir+"/"+schema+"/functions", dirPerms)
+  common.CheckErr(err)
 
-  rows, err := db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'FUNCTION'")
+  var rows *sql.Rows
+  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'FUNCTION'")
   common.CheckErr(err)
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  var tx *sql.Tx
+  tx, err = db.Begin()
+  common.CheckErr(err)
 
-  tx.Exec("use " + schema)
+  _, err = tx.Exec("use " + schema)
+  common.CheckErr(err)
+
   var funcName string
   for rows.Next() {
-    err := rows.Scan(&funcName)
+    err = rows.Scan(&funcName)
     common.CheckErr(err)
 
-    funcInfo := new(common.CreateInfoStruct)
-    qerr := tx.QueryRow("show create function "+funcName).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
-    common.CheckErr(qerr)
+    var funcInfo common.CreateInfoStruct
+    err = tx.QueryRow("show create function "+funcName).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
+    common.CheckErr(err)
 
-    jbyte, jerr := json.MarshalIndent(funcInfo, "", "  ")
-    common.CheckErr(jerr)
+    var jbyte []byte
+    jbyte, err = json.MarshalIndent(funcInfo, "", "  ")
+    common.CheckErr(err)
 
-    werr := ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, filePerms)
-    common.CheckErr(werr)
+    err = ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, filePerms)
+    common.CheckErr(err)
 
     count++
   }
@@ -235,33 +255,39 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpTriggers creates files containing trigger creation statments. It processes all triggers for the schema passed to it. The /triggers directory is hardcoded and expected by trite client code.
 func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
+  var err error
   count := 0
 
-  derr := os.Mkdir(dumpdir+"/"+schema+"/triggers", dirPerms)
-  common.CheckErr(derr)
+  err = os.Mkdir(dumpdir+"/"+schema+"/triggers", dirPerms)
+  common.CheckErr(err)
 
-  rows, err := db.Query("select trigger_name from information_schema.triggers where trigger_schema='" + schema + "'")
+  var rows *sql.Rows
+  rows, err = db.Query("select trigger_name from information_schema.triggers where trigger_schema='" + schema + "'")
   common.CheckErr(err)
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  var tx *sql.Tx
+  tx, err = db.Begin()
+  common.CheckErr(err)
 
-  tx.Exec("use " + schema)
+  _, err = tx.Exec("use " + schema)
+  common.CheckErr(err)
+
   var trigName string
   for rows.Next() {
-    err := rows.Scan(&trigName)
+    err = rows.Scan(&trigName)
     common.CheckErr(err)
 
-    trigInfo := new(common.CreateInfoStruct)
-    qerr := tx.QueryRow("show create trigger "+trigName).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
-    common.CheckErr(qerr)
+    var trigInfo common.CreateInfoStruct
+    err = tx.QueryRow("show create trigger "+trigName).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
+    common.CheckErr(err)
 
-    jbyte, jerr := json.MarshalIndent(trigInfo, "", "  ")
-    common.CheckErr(jerr)
+    var jbyte []byte
+    jbyte, err = json.MarshalIndent(trigInfo, "", "  ")
+    common.CheckErr(err)
 
-    werr := ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, filePerms)
-    common.CheckErr(werr)
+    err = ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, filePerms)
+    common.CheckErr(err)
 
     count++
   }
@@ -274,32 +300,39 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpViews creates files containing view creation statments. It processes all views for the schema passed to it. The /views directory is hardcoded and expected by trite client code.
 func dumpViews(db *sql.DB, dumpdir string, schema string) int {
+  var err error
   count := 0
-  derr := os.Mkdir(dumpdir+"/"+schema+"/views", dirPerms)
-  common.CheckErr(derr)
 
-  rows, err := db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'VIEW'")
+  err = os.Mkdir(dumpdir+"/"+schema+"/views", dirPerms)
+  common.CheckErr(err)
+
+  var rows *sql.Rows
+  rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'VIEW'")
   common.CheckErr(err)
 
   // Start db transaction
-  tx, dberr := db.Begin()
-  common.CheckErr(dberr)
+  var tx *sql.Tx
+  tx, err = db.Begin()
+  common.CheckErr(err)
 
-  tx.Exec("use " + schema)
+  _, err = tx.Exec("use " + schema)
+  common.CheckErr(err)
+
   var view string
   for rows.Next() {
-    err := rows.Scan(&view)
+    err = rows.Scan(&view)
     common.CheckErr(err)
 
-    viewInfo := new(common.CreateInfoStruct)
-    qerr := tx.QueryRow("show create view "+view).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
-    common.CheckErr(qerr)
+    var viewInfo common.CreateInfoStruct
+    err = tx.QueryRow("show create view "+view).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
+    common.CheckErr(err)
 
-    jbyte, jerr := json.MarshalIndent(viewInfo, "", "  ")
-    common.CheckErr(jerr)
+    var jbyte []byte
+    jbyte, err = json.MarshalIndent(viewInfo, "", "  ")
+    common.CheckErr(err)
 
-    werr := ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, filePerms)
-    common.CheckErr(werr)
+    err = ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, filePerms)
+    common.CheckErr(err)
 
     count++
   }
