@@ -1,3 +1,5 @@
+<div align=right><a href='http://www.babygopher.com'><img src='https://raw2.github.com/drnic/babygopher-site/gh-pages/images/babygopher-badge.png' ></a></div>
+
 Trite
 =====
 
