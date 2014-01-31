@@ -1,5 +1,7 @@
 package dump
 
+// Need to use information_schema for queries instead of show because show tables returns views
+
 import (
   "database/sql"
   "encoding/json"
@@ -112,15 +114,15 @@ func schemaList(db *sql.DB) []string {
 // dumpSchema creates a file with the schema creation statement.
 func dumpSchema(db *sql.DB, dumpdir string, schema string) {
   var err error
-  err = os.Mkdir(dumpdir+"/"+schema, dirPerms)
+  err = os.Mkdir(dumpdir +"/"+ schema, dirPerms)
   common.CheckErr(err)
 
   var ignore string
   var stmt string
-  err = db.QueryRow("show create schema "+schema).Scan(&ignore, &stmt)
+  err = db.QueryRow("show create schema "+ schema).Scan(&ignore, &stmt)
   common.CheckErr(err)
 
-  err = ioutil.WriteFile(dumpdir+"/"+schema+"/"+schema+".sql", []byte(stmt+";\n"), filePerms)
+  err = ioutil.WriteFile(dumpdir +"/"+ schema +"/"+ schema +".sql", []byte(stmt+";\n"), filePerms)
   common.CheckErr(err)
 }
 
@@ -128,19 +130,11 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 func dumpTables(db *sql.DB, dumpdir string, schema string) int {
   var err error
   count := 0
-  err = os.Mkdir(dumpdir+"/"+schema+"/tables", dirPerms)
+  err = os.Mkdir(dumpdir +"/"+ schema +"/tables", dirPerms)
   common.CheckErr(err)
 
   var rows *sql.Rows
-  rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'BASE TABLE'")
-  common.CheckErr(err)
-
-  // Start db transaction
-  var tx *sql.Tx
-  tx, err = db.Begin()
-  common.CheckErr(err)
-
-  _, err = tx.Exec("use " + schema)
+  rows, err = db.Query("select table_name from information_schema.tables where table_schema='"+ schema +"' and table_type = 'BASE TABLE'")
   common.CheckErr(err)
 
   var tableName string
@@ -150,17 +144,14 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
     err = rows.Scan(&tableName)
     common.CheckErr(err)
 
-    err = tx.QueryRow("show create table "+tableName).Scan(&ignore, &stmt)
+    err = db.QueryRow("show create table "+ schema +"."+ tableName).Scan(&ignore, &stmt)
     common.CheckErr(err)
 
-    err = ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), filePerms)
+    err = ioutil.WriteFile(dumpdir +"/"+ schema +"/tables/"+ tableName+".sql", []byte(stmt+";\n"), filePerms)
     common.CheckErr(err)
 
     count++
   }
-
-  // Commit transaction
-  err = tx.Commit()
 
   return count
 }
@@ -169,19 +160,11 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
   var err error
   count := 0
-  err = os.Mkdir(dumpdir+"/"+schema+"/procedures", dirPerms)
+  err = os.Mkdir(dumpdir +"/"+ schema +"/procedures", dirPerms)
   common.CheckErr(err)
 
   var rows *sql.Rows
-  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'PROCEDURE'")
-  common.CheckErr(err)
-
-  // Start db transaction
-  var tx *sql.Tx
-  tx, err = db.Begin()
-  common.CheckErr(err)
-
-  _, err = tx.Exec("use " + schema)
+  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='"+ schema +"' and routine_type = 'PROCEDURE'")
   common.CheckErr(err)
 
   var procName string
@@ -190,21 +173,18 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var procInfo common.CreateInfoStruct
-    err = tx.QueryRow("show create procedure "+procName).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
+    err = db.QueryRow("show create procedure "+ schema +"."+ procName).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
     jbyte, err = json.MarshalIndent(procInfo, "", "  ")
     common.CheckErr(err)
 
-    err = ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, filePerms)
+    err = ioutil.WriteFile(dumpdir +"/"+ schema +"/procedures/"+ procName+".sql", jbyte, filePerms)
     common.CheckErr(err)
 
     count++
   }
-
-  // Commit transaction
-  err = tx.Commit()
 
   return count
 }
@@ -213,19 +193,11 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
   var err error
   count := 0
-  err = os.Mkdir(dumpdir+"/"+schema+"/functions", dirPerms)
+  err = os.Mkdir(dumpdir +"/"+ schema +"/functions", dirPerms)
   common.CheckErr(err)
 
   var rows *sql.Rows
-  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'FUNCTION'")
-  common.CheckErr(err)
-
-  // Start db transaction
-  var tx *sql.Tx
-  tx, err = db.Begin()
-  common.CheckErr(err)
-
-  _, err = tx.Exec("use " + schema)
+  rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='"+ schema +"' and routine_type = 'FUNCTION'")
   common.CheckErr(err)
 
   var funcName string
@@ -234,21 +206,18 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var funcInfo common.CreateInfoStruct
-    err = tx.QueryRow("show create function "+funcName).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
+    err = db.QueryRow("show create function "+ schema +"."+ funcName).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
     jbyte, err = json.MarshalIndent(funcInfo, "", "  ")
     common.CheckErr(err)
 
-    err = ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, filePerms)
+    err = ioutil.WriteFile(dumpdir +"/"+ schema +"/functions/"+ funcName +".sql", jbyte, filePerms)
     common.CheckErr(err)
 
     count++
   }
-
-  // Commit transaction
-  err = tx.Commit()
 
   return count
 }
@@ -258,19 +227,11 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
   var err error
   count := 0
 
-  err = os.Mkdir(dumpdir+"/"+schema+"/triggers", dirPerms)
+  err = os.Mkdir(dumpdir +"/"+ schema +"/triggers", dirPerms)
   common.CheckErr(err)
 
   var rows *sql.Rows
-  rows, err = db.Query("select trigger_name from information_schema.triggers where trigger_schema='" + schema + "'")
-  common.CheckErr(err)
-
-  // Start db transaction
-  var tx *sql.Tx
-  tx, err = db.Begin()
-  common.CheckErr(err)
-
-  _, err = tx.Exec("use " + schema)
+  rows, err = db.Query("select trigger_name from information_schema.triggers where trigger_schema='"+ schema +"'")
   common.CheckErr(err)
 
   var trigName string
@@ -279,21 +240,18 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var trigInfo common.CreateInfoStruct
-    err = tx.QueryRow("show create trigger "+trigName).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
+    err = db.QueryRow("show create trigger "+ schema +"."+ trigName).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
     jbyte, err = json.MarshalIndent(trigInfo, "", "  ")
     common.CheckErr(err)
 
-    err = ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, filePerms)
+    err = ioutil.WriteFile(dumpdir +"/"+ schema +"/triggers/"+ trigName +".sql", jbyte, filePerms)
     common.CheckErr(err)
 
     count++
   }
-
-  // Commit transaction
-  err = tx.Commit()
 
   return count
 }
@@ -303,19 +261,11 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
   var err error
   count := 0
 
-  err = os.Mkdir(dumpdir+"/"+schema+"/views", dirPerms)
+  err = os.Mkdir(dumpdir+"/"+ schema +"/views", dirPerms)
   common.CheckErr(err)
 
   var rows *sql.Rows
-  rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'VIEW'")
-  common.CheckErr(err)
-
-  // Start db transaction
-  var tx *sql.Tx
-  tx, err = db.Begin()
-  common.CheckErr(err)
-
-  _, err = tx.Exec("use " + schema)
+  rows, err = db.Query("select table_name from information_schema.tables where table_schema='"+ schema +"' and table_type = 'VIEW'")
   common.CheckErr(err)
 
   var view string
@@ -324,21 +274,18 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var viewInfo common.CreateInfoStruct
-    err = tx.QueryRow("show create view "+view).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
+    err = db.QueryRow("show create view "+ schema +"."+ view).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
     common.CheckErr(err)
 
     var jbyte []byte
     jbyte, err = json.MarshalIndent(viewInfo, "", "  ")
     common.CheckErr(err)
 
-    err = ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, filePerms)
+    err = ioutil.WriteFile(dumpdir +"/"+ schema +"/views/"+ view +".sql", jbyte, filePerms)
     common.CheckErr(err)
 
     count++
   }
-
-  // Commit transaction
-  err = tx.Commit()
 
   return count
 }
