@@ -139,11 +139,7 @@ Limitations & Caveats
 
 To Do
 -----
-* Compression for copying across slow networks.
-* Retry of failed transfers.
-* Replication support - auto change master to
-* Test cases.
-* Automatically adjust worker threads based on load.
+[See enhancements in issues] (https://github.com/joshuaprunier/trite/issues?labels=enhancement&page=1&state=open)
 
 Thanks
 ------
