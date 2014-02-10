@@ -43,6 +43,7 @@ $ go get code.google.com/p/go.net/html
 
 Build trite. The compiled binary can then be copied to another location including different servers of the same architecture.
 ```bash
+$ cd $GOPATH/src/github.com/joshuaprunier/trite
 $ go build trite.go
 ```
 
