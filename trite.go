@@ -65,9 +65,14 @@ func main() {
   wd, err := os.Getwd()
   common.CheckErr(err)
 
-  // Get mysql uid & gid
+  // Confirm mysql user exists
   mysqlUser, err := user.Lookup("mysql")
-  common.CheckErr(err)
+  if err != nil {
+    fmt.Println(err)
+    os.Exit(1)
+  }
+
+  // Get mysql uid & gid
   uid, _ := strconv.Atoi(mysqlUser.Uid)
   gid, _ := strconv.Atoi(mysqlUser.Gid)
 
