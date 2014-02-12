@@ -51,11 +51,19 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
     os.Exit(1)
   }
 
+  // Most actions are transactional so idle connections are kept to a minimum
   db.SetMaxIdleConns(1)
-  _, err = db.Exec("set global innodb_import_table_from_xtrabackup=1")
+
+  // Percona import variable differs between 5.1 & 5.5
+  var ignore string
+  var importFlag string
+  err = db.QueryRow("show global variables like '%innodb%import%'").Scan(&importFlag,&ignore)
+  common.CheckErr(err)
+
+  _, err = db.Exec("set global "+ importFlag +"=1")
+  common.CheckErr(err)
 
   // Get MySQL datadir
-  var ignore string
   var mysqldir string
   err = db.QueryRow("show variables like 'datadir'").Scan(&ignore,&mysqldir)
   common.CheckErr(err)
@@ -142,7 +150,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   }
 
   // Reset global db variables
-  _, err = db.Exec("set global innodb_import_table_from_xtrabackup=0")
+  _, err = db.Exec("set global "+ importFlag +"=0")
 }
 
 // getURL is a small http.Get() wrapper
