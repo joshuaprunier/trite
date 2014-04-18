@@ -65,17 +65,6 @@ func main() {
   wd, err := os.Getwd()
   common.CheckErr(err)
 
-  // Confirm mysql user exists
-  mysqlUser, err := user.Lookup("mysql")
-  if err != nil {
-    fmt.Println(err)
-    os.Exit(1)
-  }
-
-  // Get mysql uid & gid
-  uid, _ := strconv.Atoi(mysqlUser.Uid)
-  gid, _ := strconv.Atoi(mysqlUser.Gid)
-
   // Profiling flags
   var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
   var memprofile = flag.String("memprofile", "", "write memory profile to this file")
@@ -121,13 +110,24 @@ func main() {
   }
 
   // Populate dbInfo struct
-  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock, UID: uid, GID: gid}
+  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
 
   // Detect what functionality is being requested
   if *flagClient {
     if *flagServerHost == "" || *flagDbUser == "" {
       showUsage()
     } else {
+      // Confirm mysql user exists
+      mysqlUser, err := user.Lookup("mysql")
+      if err != nil {
+        fmt.Println(err)
+        os.Exit(1)
+      }
+
+      // Get mysql uid & gid
+      dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
+      dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
+
       client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
     }
   } else if *flagDump {
