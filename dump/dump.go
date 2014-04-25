@@ -8,6 +8,7 @@ import (
   "fmt"
   "io/ioutil"
   "os"
+  "strings"
   "time"
 
   "github.com/joshuaprunier/trite/common"
@@ -33,6 +34,9 @@ type (
 
 // RunDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
 func RunDump(dir string, dbInfo *common.DbInfoStruct) {
+  // Trim trailing slash if provided by user
+  dir = strings.TrimSuffix(dir, "/")
+
   dumpdir := dir+"/"+dbInfo.Host+"_dump" + time.Now().Format(stamp)
   fmt.Println("Dumping to:", dumpdir)
   fmt.Println()
@@ -52,7 +56,7 @@ func RunDump(dir string, dbInfo *common.DbInfoStruct) {
   schemas := schemaList(db)
 
   // Create dump directory
-  err = os.Mkdir(dumpdir, dirPerms)
+  err = os.MkdirAll(dumpdir, dirPerms)
   common.CheckErr(err)
 
   // Schema loop
