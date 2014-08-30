@@ -31,6 +31,7 @@ type (
     gid        int
     engine     string
     extensions []string
+    version    string
   }
 )
 
@@ -54,14 +55,25 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   // Most actions are transactional so idle connections are kept to a minimum
   db.SetMaxIdleConns(1)
 
-  // Percona import variable differs between 5.1 & 5.5
+  // Percona import variable differs between versions
   var ignore string
-  var importFlag string
-  err = db.QueryRow("show global variables like '%innodb%import%'").Scan(&importFlag,&ignore)
+  var version string
+  err = db.QueryRow("show global variables like 'version'").Scan(&ignore,&version)
   common.CheckErr(err)
 
-  _, err = db.Exec("set global "+ importFlag +"=1")
-  common.CheckErr(err)
+  var importFlag string
+  if strings.HasPrefix(version, "5.1") || strings.HasPrefix(version, "5.5") {
+    err = db.QueryRow("show global variables like '%innodb%import%'").Scan(&importFlag,&ignore)
+    common.CheckErr(err)
+
+    _, err = db.Exec("set global "+ importFlag +"=1")
+    common.CheckErr(err)
+  } else if strings.HasPrefix(version, "5.6") {
+    // No import flag for 5.6
+  } else {
+    fmt.Println(version, "is not supported")
+    os.Exit(1)
+  }
 
   // Get MySQL datadir
   var mysqldir string
@@ -122,7 +134,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
     if len(tables) > 0 { // ignore when path is empty
       for _, table := range tables {
 
-        downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: uid, gid: gid}
+        downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: uid, gid: gid, version: version}
 
         // Infinite loop to keep active go routines to 5 or less
         for {
@@ -150,7 +162,9 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   }
 
   // Reset global db variables
-  _, err = db.Exec("set global "+ importFlag +"=0")
+  if importFlag != "" {
+    _, err = db.Exec("set global "+ importFlag +"=0")
+  }
 }
 
 // getURL is a small http.Get() wrapper
@@ -218,7 +232,11 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
   if resp.StatusCode == 200 {
     engine = "InnoDB"
     extensions = append(extensions,".ibd")
-    extensions = append(extensions,".exp")
+
+    // 5.1 & 5.5 use .exp - 5.6 uses .cfg but it is ignored. Metadata checks appeared too brittle in testing.
+    if strings.HasPrefix(downloadInfo.version, "5.1") || strings.HasPrefix(downloadInfo.version, "5.5") {
+      extensions = append(extensions,".exp")
+    }
   } else {
     resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
     common.CheckErr(err)
