@@ -24,7 +24,7 @@ Not required to compile the code but you won't be able to do much without:
 
 Installation
 ------------
-Install [git](http://git-scm.com/downloads) and [mercurial](http://mercurial.selenic.com/downloads/) if necessary. (Needed for `go get` of the following code)
+Install [git](http://git-scm.com/downloads) and [mercurial](http://mercurial.selenic.com/downloads) if necessary. (Needed for `go get` of the following code)
 
 Get the latest copy of trite
 ```bash
