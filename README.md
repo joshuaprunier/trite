@@ -19,7 +19,7 @@ Dependencies
 [Go net/html sub-repo](http://godoc.org/code.google.com/p/go.net/html) package is used to parse html pages served by trite in server mode   
 
 Not required to compile the code but you won't be able to do much without:  
-[Percona Server 5.1, 5.5, 5.6](http://www.percona.com/software/percona-server) or [Oracle MySQL 5.6](http://dev.mysql.com/downloads/mysql)  
+[Percona Server 5.1, 5.5, 5.6](http://www.percona.com/software/percona-server) or [Oracle MySQL 5.6](http://dev.mysql.com/downloads/mysql) or [MariaDB 5.5, 10](https://mariadb.com/resources/downloads)  
 [Percona XtraBackup](http://www.percona.com/software/percona-xtrabackup)  
 
 Installation
@@ -128,7 +128,7 @@ Limitations & Caveats
 * Trite's speed is largely dependent on network transfer speed from the server to the client and the i/o speed of the database destination. A small amount of CPU is consumed when restoring compressed InnoDB tables.
 * innodb_file_per_table must be enabled on both the database backed up from and restored to.
 * The import process bypasses MySQL replication so care must be given when restoring a database master or slave.
-* The destination database must be running Percona server 5.1, 5.5, 5.6 or Oracle MySQL 5.6
+* The destination database must be running Percona server 5.1, 5.5, 5.6 or Oracle MySQL 5.6 or MariaDB 5.5, 10.
 * The --export & --apply-log options must be run on the database backup taken with Percona XtraBackup. This is checked when a trite server is started otherwise it will exit with an error.
 * Running --export & --apply-log prevents the backup from being used with additional incremental backups. An LVM snapshot/restore should get around this.
 * Currently only InnoDB & MyISAM engines are supported by trite. Additional engines should be easy to add provided they are supported by XtraBackup.
