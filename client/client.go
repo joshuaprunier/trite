@@ -68,8 +68,8 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
 
     _, err = db.Exec("set global "+ importFlag +"=1")
     common.CheckErr(err)
-  } else if strings.HasPrefix(version, "5.6") {
-    // No import flag for 5.6
+  } else if strings.HasPrefix(version, "5.6") || strings.HasPrefix(version, "10") {
+    // No import flag for 5.6 or MariaDB 10
   } else {
     fmt.Println(version, "is not supported")
     os.Exit(1)
