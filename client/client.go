@@ -52,9 +52,6 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
     os.Exit(1)
   }
 
-  // Most actions are transactional so idle connections are kept to a minimum
-  db.SetMaxIdleConns(1)
-
   // Percona import variable differs between versions
   var ignore string
   var version string
@@ -124,7 +121,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
 
     // Check if schema exists
     schemaTrimmed := strings.Trim(schema, "/")
-    checkSchema(dbInfo, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
+    checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
 
     // Parse html and get a list of tables to transport
     tablesDir := getURL(taburl + schema + "/tables")
@@ -196,18 +193,12 @@ func parseAnchor(r *http.Response) []string {
   return txt
 }
 
-// checkSchema confirms that a schema exists
-func checkSchema(dbInfo *common.DbInfoStruct, schema string, url string) {
-  dbInfo.Schema = schema
-  db,err := common.DbConn(dbInfo)
-  defer db.Close()
+// checkSchema creates a schema if it does not already exist
+func checkSchema(db *sql.DB, schema string, url string) {
+  var exists string
+  err := db.QueryRow("show databases like '"+ schema +"'").Scan(&exists)
 
-  // If schema does not exist create it
   if err != nil {
-    dbInfo.Schema = ""
-    db,err := common.DbConn(dbInfo)
-    defer db.Close()
-
     resp := getURL(url)
     defer resp.Body.Close()
     stmt, _ := ioutil.ReadAll(resp.Body)
