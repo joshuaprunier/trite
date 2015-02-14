@@ -58,6 +58,12 @@ func ParseFileName(text string) (string, string) {
   return file, ret
 }
 
+// Adds backtick quotes in cases where identifiers are all numeric or match reserved keywords
+func AddQuotes(s string) string {
+  s = "`" + s + "`"
+  return s
+}
+
 // DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
 func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
   // Trap for SIGINT, may need to trap other signals in the future as well

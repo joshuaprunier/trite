@@ -123,7 +123,7 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 
   var ignore string
   var stmt string
-  err = db.QueryRow("show create schema "+ schema).Scan(&ignore, &stmt)
+  err = db.QueryRow("show create schema "+ common.AddQuotes(schema)).Scan(&ignore, &stmt)
   common.CheckErr(err)
 
   err = ioutil.WriteFile(dumpdir +"/"+ schema +"/"+ schema +".sql", []byte(stmt+";\n"), filePerms)
@@ -148,7 +148,7 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
     err = rows.Scan(&tableName)
     common.CheckErr(err)
 
-    err = db.QueryRow("show create table "+ schema +"."+ tableName).Scan(&ignore, &stmt)
+    err = db.QueryRow("show create table "+ common.AddQuotes(schema) +"."+ common.AddQuotes(tableName)).Scan(&ignore, &stmt)
     common.CheckErr(err)
 
     err = ioutil.WriteFile(dumpdir +"/"+ schema +"/tables/"+ tableName+".sql", []byte(stmt+";\n"), filePerms)
@@ -177,7 +177,7 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var procInfo common.CreateInfoStruct
-    err = db.QueryRow("show create procedure "+ schema +"."+ procName).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
+    err = db.QueryRow("show create procedure "+ common.AddQuotes(schema) +"."+ common.AddQuotes(procName)).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
@@ -210,7 +210,7 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var funcInfo common.CreateInfoStruct
-    err = db.QueryRow("show create function "+ schema +"."+ funcName).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
+    err = db.QueryRow("show create function "+ common.AddQuotes(schema) +"."+ common.AddQuotes(funcName)).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
@@ -244,7 +244,7 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var trigInfo common.CreateInfoStruct
-    err = db.QueryRow("show create trigger "+ schema +"."+ trigName).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
+    err = db.QueryRow("show create trigger "+ common.AddQuotes(schema) +"."+ common.AddQuotes(trigName)).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
     common.CheckErr(err)
 
     var jbyte []byte
@@ -278,7 +278,7 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
     common.CheckErr(err)
 
     var viewInfo common.CreateInfoStruct
-    err = db.QueryRow("show create view "+ schema +"."+ view).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
+    err = db.QueryRow("show create view "+ common.AddQuotes(schema) +"."+ common.AddQuotes(view)).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
     common.CheckErr(err)
 
     var jbyte []byte

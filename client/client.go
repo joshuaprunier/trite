@@ -307,7 +307,7 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
     stmt, _ := ioutil.ReadAll(resp.Body)
 
     // Drop table if exists
-    _, err := tx.Exec("drop table if exists " + filename)
+    _, err := tx.Exec("drop table if exists " + common.AddQuotes(filename))
     common.CheckErr(err)
 
     // Create table
@@ -315,11 +315,11 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
     common.CheckErr(err)
 
     // Discard the tablespace
-    _, err = tx.Exec("alter table " + filename + " discard tablespace")
+    _, err = tx.Exec("alter table " + common.AddQuotes(filename) + " discard tablespace")
     common.CheckErr(err)
 
     // Lock the table just in case
-    _, err = tx.Exec("lock table " + filename + " write")
+    _, err = tx.Exec("lock table " + common.AddQuotes(filename) + " write")
     common.CheckErr(err)
 
     // rename happens here
@@ -329,10 +329,10 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
     }
 
     // Import tablespace and analyze otherwise there will be no index statistics
-    _, err = tx.Exec("alter table " + filename + " import tablespace")
+    _, err = tx.Exec("alter table " + common.AddQuotes(filename) + " import tablespace")
     common.CheckErr(err)
 
-    _, err = tx.Exec("analyze local table " + filename)
+    _, err = tx.Exec("analyze local table " + common.AddQuotes(filename))
     common.CheckErr(err)
 
     // Unlock the table
@@ -345,7 +345,7 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 
   case "MyISAM":
     // Drop table if exists
-    _, err := tx.Exec("drop table if exists " + filename)
+    _, err := tx.Exec("drop table if exists " + common.AddQuotes(filename))
     common.CheckErr(err)
 
     // Rename happens here
@@ -394,7 +394,7 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
     for _, object := range objects {
 
       filename, _ := common.ParseFileName(object)
-      _, err := tx.Exec("drop " + objType + " if exists " + filename)
+      _, err := tx.Exec("drop " + objType + " if exists " + common.AddQuotes(filename))
       resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
       defer resp.Body.Close()
       stmt, _ := ioutil.ReadAll(resp.Body)
