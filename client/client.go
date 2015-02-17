@@ -248,7 +248,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
   // Loop through and download all files from extensions array
   for _,extension := range extensions {
-    tmpfile := downloadInfo.mysqldir + filename + extension + ".trite"
+    tmpfile := downloadInfo.mysqldir + downloadInfo.schema + filename + extension + ".trite"
     urlfile := downloadInfo.backurl + downloadInfo.schema + filename + extension
 
     // Request and write file
@@ -322,9 +322,9 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
     _, err = tx.Exec("lock table " + common.AddQuotes(filename) + " write")
     common.CheckErr(err)
 
-    // rename happens here
+    // Rename happens here
     for _,extension := range downloadInfo.extensions {
-      err := os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      err := os.Rename(downloadInfo.mysqldir + downloadInfo.schema + filename + extension + ".trite", downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
       common.CheckErr(err)
     }
 
@@ -350,7 +350,7 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 
     // Rename happens here
     for _,extension := range downloadInfo.extensions {
-      err = os.Rename(downloadInfo.mysqldir + filename + extension + ".trite",downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
+      err = os.Rename(downloadInfo.mysqldir + downloadInfo.schema + filename + extension + ".trite", downloadInfo.mysqldir + downloadInfo.schema + filename + extension)
       common.CheckErr(err)
     }
 
