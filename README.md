@@ -132,6 +132,7 @@ Limitations & Caveats
 * The --export & --apply-log options must be run on the database backup taken with Percona XtraBackup. This is checked when a trite server is started otherwise it will exit with an error.
 * Running --export & --apply-log prevents the backup from being used with additional incremental backups. An LVM snapshot/restore should get around this.
 * Currently only InnoDB & MyISAM engines are supported by trite. Additional engines should be easy to add provided they are supported by XtraBackup.
+* Only basic latin letters in schema and table names is supported. However, [unicode character support] (https://github.com/joshuaprunier/trite/issues/12) is planned.
 * The mysql, information_schema and performance_schema are ignored in dump mode.
 * The import process is very verbose and will pollute the MySQL error log with information for every table imported.
 * Import of compressed InnoDB tables is noted as "EXPERIMENTAL" but has worked just fine in my testing. Please let me know if you experience otherwise.
