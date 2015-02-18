@@ -222,12 +222,13 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
   extensions := []string{}
   if resp.StatusCode == 200 {
     engine = "InnoDB"
-    extensions = append(extensions,".ibd")
 
     // 5.1 & 5.5 use .exp - 5.6 uses .cfg but it is ignored. Metadata checks appeared too brittle in testing.
     if strings.HasPrefix(downloadInfo.version, "5.1") || strings.HasPrefix(downloadInfo.version, "5.5") {
       extensions = append(extensions,".exp")
     }
+
+    extensions = append(extensions,".ibd")
   } else {
     resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
     common.CheckErr(err)
@@ -238,7 +239,18 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
       extensions = append(extensions,".MYD")
       extensions = append(extensions,".frm")
     } else {
-      engine = "not handled"
+      fmt.Println()
+      fmt.Println("!!!!!!!!!!!!!!!!!!!!")
+      fmt.Println("The .ibd or .MYD file is missing for table", filename)
+      fmt.Println("Skipping ...")
+      fmt.Println("!!!!!!!!!!!!!!!!!!!!")
+      fmt.Println()
+
+      // Need to decrement since applyTables() will never be called
+      atomic.AddInt32(active, -1)
+      wg.Done()
+
+      return
     }
   }
 
@@ -250,6 +262,28 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
   for _,extension := range extensions {
     tmpfile := downloadInfo.mysqldir + downloadInfo.schema + filename + extension + ".trite"
     urlfile := downloadInfo.backurl + downloadInfo.schema + filename + extension
+
+    // Ensure the .exp exists if we expect it
+    // Checking this due to a bug encountered where XtraBackup did not create a tables .exp file
+    if extension == ".exp" {
+      resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".exp")
+      common.CheckErr(err)
+
+      if resp.StatusCode != 200 {
+        fmt.Println()
+        fmt.Println("!!!!!!!!!!!!!!!!!!!!")
+        fmt.Println("The .exp file is missing for table", filename)
+        fmt.Println("Skipping ...")
+        fmt.Println("!!!!!!!!!!!!!!!!!!!!")
+        fmt.Println()
+
+        // Need to decrement since applyTables() will never be called
+        atomic.AddInt32(active, -1)
+        wg.Done()
+
+        return
+      }
+    }
 
     // Request and write file
     fo, err := os.Create(tmpfile)
