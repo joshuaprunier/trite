@@ -6,8 +6,6 @@ import (
   _ "github.com/go-sql-driver/mysql" // Go MySQL driver
   "io"
   "log"
-  "os"
-  "os/signal"
   "strings"
   "syscall"
   "unsafe"
@@ -66,17 +64,6 @@ func AddQuotes(s string) string {
 
 // DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
 func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
-  // Trap for SIGINT, may need to trap other signals in the future as well
-  sigChan := make(chan os.Signal, 1)
-  signal.Notify(sigChan, os.Interrupt)
-
-  go func() {
-    for sig := range sigChan {
-      fmt.Println()
-      fmt.Println(sig, "signal caught!")
-    }
-  }()
-
   // If password is blank prompt user - Not perfect as it prints the password typed to the screen
   if dbInfo.Pass == "" {
     fmt.Println("Enter password: ")

@@ -151,6 +151,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
   wg.Wait()
 
   // Loop through all schemas again and apply triggers, views, procedures & functions
+  fmt.Println()
   objectTypes := []string{"trigger","view","procedure","function"}
   for _, schema := range schemas {
     for _, objectType := range objectTypes {

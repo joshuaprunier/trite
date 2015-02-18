@@ -5,9 +5,12 @@ import (
   "fmt"
   "os/user"
   "os"
+  "os/signal"
   "runtime/pprof"
   "strconv"
+  "syscall"
   "time"
+  "unsafe"
 
   "github.com/joshuaprunier/trite/client"
   "github.com/joshuaprunier/trite/common"
@@ -60,6 +63,29 @@ func showUsage() {
 // Main
 func main() {
   start := time.Now()
+
+  // Trap for SIGINT, may need to trap other signals in the future as well
+  sigChan := make(chan os.Signal, 1)
+  signal.Notify(sigChan, os.Interrupt)
+
+  var oldState syscall.Termios
+  syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
+
+  var timer time.Time
+  go func() {
+    for sig := range sigChan {
+      if time.Now().Sub(timer) < time.Second * 5 {
+        syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
+        os.Exit(0)
+      }
+
+      fmt.Println()
+      fmt.Println(sig, "signal caught!")
+      fmt.Println("Send signal again within 3 seconds to exit")
+
+      timer = time.Now()
+    }
+  }()
 
   // Get working directory
   wd, err := os.Getwd()
