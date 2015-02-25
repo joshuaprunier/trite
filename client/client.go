@@ -2,7 +2,8 @@ package client
 
 import (
   "bufio"
-  "code.google.com/p/go.net/html"
+//  "code.google.com/p/go.net/html"
+  "golang.org/x/net/html"
   "database/sql"
   "encoding/json"
   "fmt"
