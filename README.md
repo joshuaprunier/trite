@@ -1,22 +1,21 @@
 Trite
 =====
 
-Trite is a client/server written in 100% Go that provides customizable transportation of binary InnoDB table files from XtraBackups. Trite stands for <b>TR</b>ansport <b>I</b>nnodb <b>T</b>ables <b>E</b>fficiently and is also a nod to the repetitive manual steps that must be done to copy .ibd files to remote MySQL databases. Trite automates that manual process. Copying binary files is much quicker than traditional mysqldump restores when a tables size becomes very large. It also allows partial database restores not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.  
+Trite is a client/server written in 100% Go that provides customizable transportation of binary InnoDB table files from XtraBackups. Trite stands for <b>TR</b>ansport <b>I</b>nnodb <b>T</b>ables <b>E</b>fficiently and is a nod to the repetitive manual steps that must be done to copy .ibd files to remote MySQL databases. Trite automates that manual process. Copying binary files is much quicker than traditional mysqldump restores when a tables size becomes very large. It also allows partial database restores not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.  
 
 Trite is a good fit if time is a factor and you need to do the following:  
-* Copy very large InnoDB tables
-* Recover just a subset of database tables
-* Refresh a single database instance from multiple source databases
-* Get an additional benefit from those stagnant database backups ;-)
+* Copy very large InnoDB tables between databases
+* Recover a subset of tables
+* Refresh a single database from different source databases
+* Clone a database to shrink the ibdata file size
 
-The [dependencies](https://github.com/joshuaprunier/trite/edit/master/README.md#dependencies) and [limitations](https://github.com/joshuaprunier/trite/edit/master/README.md#limitations-caveats) are rather extensive so be sure to read them before deciding if trite will work in your environment.
+The [limitations](https://github.com/joshuaprunier/trite/edit/master/README.md#limitations-caveats) are rather extensive so be sure to read them before deciding if trite will work in your environment.
 
 
 Dependencies
 ------------
 [Go 1.0](http://golang.org/doc/install) or greater  
-[Go MySQL Driver](http://github.com/go-sql-driver/mysql) or equivalent conforming to Go's [database/sql](http://golang.org/pkg/database/sql/) package  
-[Go net/html sub-repo](http://godoc.org/code.google.com/p/go.net/html) package is used to parse html pages served by trite in server mode   
+[Git](http://git-scm.com/downloads) required for `go get`
 
 Not required to compile the code but you won't be able to do much without:  
 [Percona Server 5.1, 5.5, 5.6](http://www.percona.com/software/percona-server) or [Oracle MySQL 5.6](http://dev.mysql.com/downloads/mysql) or [MariaDB 5.5, 10](https://mariadb.com/resources/downloads)  
@@ -24,28 +23,11 @@ Not required to compile the code but you won't be able to do much without:
 
 Installation
 ------------
-Install [git](http://git-scm.com/downloads) and [mercurial](http://mercurial.selenic.com/downloads) if necessary. (Needed for `go get` of the following code)
-
-Get the latest copy of trite
 ```bash
 $ go get github.com/joshuaprunier/trite
 ```
 
-Get the latest copy of go-sql-driver
-```bash
-$ go get github.com/go-sql-driver/mysql
-```
-
-Get the latest copy of the net/html sub-repo
-```bash
-$ go get code.google.com/p/go.net/html
-```
-
-Build trite. The compiled binary can then be copied to another location including different servers of the same architecture.
-```bash
-$ cd $GOPATH/src/github.com/joshuaprunier/trite
-$ go build trite.go
-```
+The trite binary can be found at: $GOPATH/bin/trite
 
 Usage
 -----
@@ -130,13 +112,12 @@ Limitations & Caveats
 * The import process bypasses MySQL replication so care must be given when restoring a database master or slave.
 * The destination database must be running Percona server 5.1, 5.5, 5.6 or Oracle MySQL 5.6 or MariaDB 5.5, 10.
 * The --export & --apply-log options must be run on the database backup taken with Percona XtraBackup. This is checked when a trite server is started otherwise it will exit with an error.
-* Running --export & --apply-log prevents the backup from being used with additional incremental backups. An LVM snapshot/restore should get around this.
 * Currently only InnoDB & MyISAM engines are supported by trite. Additional engines should be easy to add provided they are supported by XtraBackup.
 * Only basic latin letters in schema and table names is supported. However, [unicode character support] (https://github.com/joshuaprunier/trite/issues/12) is planned.
 * The mysql, information_schema and performance_schema are ignored in dump mode.
-* The import process is very verbose and will pollute the MySQL error log with information for every table imported.
+* The import process is very verbose and will pollute the MySQL error log with information for every table imported. Unfortunately there is no way to prevent this.
 * Import of compressed InnoDB tables is noted as "EXPERIMENTAL" but has worked just fine in my testing. Please let me know if you experience otherwise.
-* Table transfer failure is currently detected, cleaned up and the code terminates. This does not happen under typical use but I plan to add retry code eventually.
+* Table download failure is currently detected, cleaned up and the code terminates. This does not happen under typical use but I plan to add retry code eventually.
 * It is currently up to the human customizing the restore to handle table relationships with regards to foreign key relationships. Fk constraints are ignored during the copy process.
 
 To Do
