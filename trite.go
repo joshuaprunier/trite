@@ -1,26 +1,26 @@
 package main
 
 import (
-  "flag"
-  "fmt"
-  "os/user"
-  "os"
-  "os/signal"
-  "runtime/pprof"
-  "strconv"
-  "syscall"
-  "time"
-  "unsafe"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"os/user"
+	"runtime/pprof"
+	"strconv"
+	"syscall"
+	"time"
+	"unsafe"
 
-  "github.com/joshuaprunier/trite/client"
-  "github.com/joshuaprunier/trite/common"
-  "github.com/joshuaprunier/trite/dump"
-  "github.com/joshuaprunier/trite/server"
+	"github.com/joshuaprunier/trite/client"
+	"github.com/joshuaprunier/trite/common"
+	"github.com/joshuaprunier/trite/dump"
+	"github.com/joshuaprunier/trite/server"
 )
 
 // ShowUsage prints a help screen which details all three modes command line flags
 func showUsage() {
-  fmt.Println(`
+	fmt.Println(`
   Usage of trite:
 
     CLIENT MODE
@@ -62,128 +62,128 @@ func showUsage() {
 
 // Main
 func main() {
-  start := time.Now()
+	start := time.Now()
 
-  // Trap for SIGINT, may need to trap other signals in the future as well
-  sigChan := make(chan os.Signal, 1)
-  signal.Notify(sigChan, os.Interrupt)
+	// Trap for SIGINT, may need to trap other signals in the future as well
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
 
-  var oldState syscall.Termios
-  syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
+	var oldState syscall.Termios
+	syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
 
-  var timer time.Time
-  go func() {
-    for sig := range sigChan {
-      if time.Now().Sub(timer) < time.Second * 5 {
-        syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-        os.Exit(0)
-      }
+	var timer time.Time
+	go func() {
+		for sig := range sigChan {
+			if time.Now().Sub(timer) < time.Second*5 {
+				syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
+				os.Exit(0)
+			}
 
-      fmt.Println()
-      fmt.Println(sig, "signal caught!")
-      fmt.Println("Send signal again within 3 seconds to exit")
+			fmt.Println()
+			fmt.Println(sig, "signal caught!")
+			fmt.Println("Send signal again within 3 seconds to exit")
 
-      timer = time.Now()
-    }
-  }()
+			timer = time.Now()
+		}
+	}()
 
-  // Get working directory
-  wd, err := os.Getwd()
-  common.CheckErr(err)
+	// Get working directory
+	wd, err := os.Getwd()
+	common.CheckErr(err)
 
-  // Profiling flags
-  var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-  var memprofile = flag.String("memprofile", "", "write memory profile to this file")
+	// Profiling flags
+	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 
-  // MySQL flags
-  flagDbUser := flag.String("user", "", "MySQL: User")
-  flagDbPass := flag.String("password", "", "MySQL: Password")
-  flagDbHost := flag.String("host", "", "MySQL: Host")
-  flagDbPort := flag.String("port", "3306", "MySQL: Port")
-  flagDbSock := flag.String("socket", "", "MySQL: Socket")
+	// MySQL flags
+	flagDbUser := flag.String("user", "", "MySQL: User")
+	flagDbPass := flag.String("password", "", "MySQL: Password")
+	flagDbHost := flag.String("host", "", "MySQL: Host")
+	flagDbPort := flag.String("port", "3306", "MySQL: Port")
+	flagDbSock := flag.String("socket", "", "MySQL: Socket")
 
-  // Client flags
-  flagClient := flag.Bool("client", false, "Run in client mode")
-  flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
-  flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
+	// Client flags
+	flagClient := flag.Bool("client", false, "Run in client mode")
+	flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
+	flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
 
-  // Dump flags
-  flagDump := flag.Bool("dump", false, "Run in dump mode")
-  flagDumpDir := flag.String("dump_dir", wd, "DUMP: Directory for output")
+	// Dump flags
+	flagDump := flag.Bool("dump", false, "Run in dump mode")
+	flagDumpDir := flag.String("dump_dir", wd, "DUMP: Directory for output")
 
-  // Server flags
-  flagServer := flag.Bool("server", false, "Run in server mode")
-  flagTablePath := flag.String("dump_path", "", "SERVER: Path to create table files")
-  flagBackupPath := flag.String("backup_path", "", "SERVER: Path to database backup files")
-  flagPort := flag.String("server_port", "12000", "CLIENT/SERVER: HTTP port number") // also used by client
+	// Server flags
+	flagServer := flag.Bool("server", false, "Run in server mode")
+	flagTablePath := flag.String("dump_path", "", "SERVER: Path to create table files")
+	flagBackupPath := flag.String("backup_path", "", "SERVER: Path to database backup files")
+	flagPort := flag.String("server_port", "12000", "CLIENT/SERVER: HTTP port number") // also used by client
 
-  // Intercept -help and show usage screen
-  flagHelp := flag.Bool("help", false, "Command Usage")
+	// Intercept -help and show usage screen
+	flagHelp := flag.Bool("help", false, "Command Usage")
 
-  flag.Parse()
+	flag.Parse()
 
-  // CPU Profiling
-  if *cpuprofile != "" {
-    f, err := os.Create(*cpuprofile)
-    common.CheckErr(err)
-    pprof.StartCPUProfile(f)
-    defer pprof.StopCPUProfile()
-  }
+	// CPU Profiling
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		common.CheckErr(err)
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
-  // Default to localhost if no host or socket provided
-  if *flagDbSock == "" && *flagDbHost == "" {
-    *flagDbHost = "localhost"
-  }
+	// Default to localhost if no host or socket provided
+	if *flagDbSock == "" && *flagDbHost == "" {
+		*flagDbHost = "localhost"
+	}
 
-  // Populate dbInfo struct
-  dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
+	// Populate dbInfo struct
+	dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
 
-  // Detect what functionality is being requested
-  if *flagClient {
-    if *flagServerHost == "" || *flagDbUser == "" {
-      showUsage()
-    } else {
-      // Confirm mysql user exists
-      mysqlUser, err := user.Lookup("mysql")
-      if err != nil {
-        fmt.Println(err)
-        os.Exit(1)
-      }
+	// Detect what functionality is being requested
+	if *flagClient {
+		if *flagServerHost == "" || *flagDbUser == "" {
+			showUsage()
+		} else {
+			// Confirm mysql user exists
+			mysqlUser, err := user.Lookup("mysql")
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 
-      // Get mysql uid & gid
-      dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
-      dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
+			// Get mysql uid & gid
+			dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
+			dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
 
-      client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
-    }
-  } else if *flagDump {
-    if *flagDbUser == "" {
-      showUsage()
-    } else {
-      dump.RunDump(*flagDumpDir, &dbInfo)
-    }
-  } else if *flagServer {
-    if *flagTablePath == "" || *flagBackupPath == "" {
-      showUsage()
-    } else {
-      server.RunServer(*flagTablePath, *flagBackupPath, *flagPort)
-    }
-  } else if *flagHelp {
-    showUsage()
-  } else {
-    if len(flag.Args()) == 0 {
-      showUsage()
-    }
-  }
+			client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
+		}
+	} else if *flagDump {
+		if *flagDbUser == "" {
+			showUsage()
+		} else {
+			dump.RunDump(*flagDumpDir, &dbInfo)
+		}
+	} else if *flagServer {
+		if *flagTablePath == "" || *flagBackupPath == "" {
+			showUsage()
+		} else {
+			server.RunServer(*flagTablePath, *flagBackupPath, *flagPort)
+		}
+	} else if *flagHelp {
+		showUsage()
+	} else {
+		if len(flag.Args()) == 0 {
+			showUsage()
+		}
+	}
 
-  // Memory Profiling
-  if *memprofile != "" {
-    f, err := os.Create(*memprofile)
-    common.CheckErr(err)
-    pprof.WriteHeapProfile(f)
-    defer f.Close()
-  }
+	// Memory Profiling
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		common.CheckErr(err)
+		pprof.WriteHeapProfile(f)
+		defer f.Close()
+	}
 
-  fmt.Println()
-  fmt.Println("Total runtime =", time.Since(start))
+	fmt.Println()
+	fmt.Println("Total runtime =", time.Since(start))
 }
