@@ -77,10 +77,10 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
 	var db *sql.DB
 	var err error
 	if dbInfo.Sock != "" {
-		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
 		CheckErr(err)
 	} else if dbInfo.Host != "" {
-		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
 		CheckErr(err)
 	} else {
 		fmt.Println("should be no else")
