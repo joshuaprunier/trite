@@ -35,14 +35,14 @@ type (
 )
 
 // RunClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func runClient(url string, port string, workers uint, dbInfo *dbInfoStruct) {
+func runClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 
 	// Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
-	uid := dbInfo.UID
-	gid := dbInfo.GID
+	uid := dbi.uid
+	gid := dbi.gid
 
 	// Make a database connection
-	db, err := dbConn(dbInfo)
+	db, err := dbi.connect()
 	defer db.Close()
 
 	// Problem connecting to database

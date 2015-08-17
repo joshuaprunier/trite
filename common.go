@@ -15,18 +15,17 @@ import (
 const mysqlTimeout = "3600"    // 1 hour - must be string
 const mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping thousands of tables
 
-// Type definitions
 type (
-	// DbInfoStruct defines database connection information
-	dbInfoStruct struct {
-		User   string
-		Pass   string
-		Host   string
-		Port   string
-		Sock   string
-		Schema string
-		UID    int
-		GID    int
+	// mysqlCredentials defines database connection information
+	mysqlCredentials struct {
+		user   string
+		pass   string
+		host   string
+		port   string
+		sock   string
+		schema string
+		uid    int
+		gid    int
 	}
 
 	// CreateInfoStruct stores creation information for procedures, functions, triggers and views
@@ -40,7 +39,7 @@ type (
 	}
 )
 
-// checkErr is an error handling catch all. Frequent errors that come through here should be handled in the specific portion of the code where they originate.
+// checkErr is an error handling catch all function
 func checkErr(e error) {
 	if e != nil {
 		log.Panic(e)
@@ -63,27 +62,25 @@ func addQuotes(s string) string {
 	return s
 }
 
-// DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
-func dbConn(dbInfo *dbInfoStruct) (*sql.DB, error) {
-	// If password is blank prompt user - Not perfect as it prints the password typed to the screen
-	if dbInfo.Pass == "" {
+// connect returns a MySQL database connection handler
+func (dbi *mysqlCredentials) connect() (*sql.DB, error) {
+	// If password is blank prompt user
+	if dbi.pass == "" {
 		fmt.Println("Enter password: ")
 		pwd, err := readPassword(0)
 		checkErr(err)
-		dbInfo.Pass = string(pwd)
+		dbi.pass = string(pwd)
 	}
 
 	// Determine tcp or socket connection
 	var db *sql.DB
 	var err error
-	if dbInfo.Sock != "" {
-		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+	if dbi.sock != "" {
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/"+dbi.schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
 		checkErr(err)
-	} else if dbInfo.Host != "" {
-		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+	} else if dbi.host != "" {
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/"+dbi.schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
 		checkErr(err)
-	} else {
-		fmt.Println("should be no else")
 	}
 
 	// Ping database to verify credentials

@@ -17,16 +17,16 @@ const (
 )
 
 // RunDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
-func runDump(dir string, dbInfo *dbInfoStruct) {
+func runDump(dir string, dbi *mysqlCredentials) {
 	// Trim trailing slash if provided by user
 	dir = strings.TrimSuffix(dir, "/")
 
-	dumpdir := dir + "/" + dbInfo.Host + "_dump" + time.Now().Format(stamp)
+	dumpdir := dir + "/" + dbi.host + "_dump" + time.Now().Format(stamp)
 	fmt.Println("Dumping to:", dumpdir)
 	fmt.Println()
 
 	// Return a database connection
-	db, err := dbConn(dbInfo)
+	db, err := dbi.connect()
 	defer db.Close()
 
 	// Problem connecting to database

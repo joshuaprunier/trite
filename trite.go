@@ -130,8 +130,7 @@ func main() {
 		*flagDbHost = "localhost"
 	}
 
-	// Populate dbInfo struct
-	dbInfo := dbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
+	dbi := mysqlCredentials{user: *flagDbUser, pass: *flagDbPass, host: *flagDbHost, port: *flagDbPort, sock: *flagDbSock}
 
 	// Detect what functionality is being requested
 	if *flagClient {
@@ -146,16 +145,16 @@ func main() {
 			}
 
 			// Get mysql uid & gid
-			dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
-			dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
+			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
+			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			runClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
+			runClient(*flagServerHost, *flagPort, *flagWorkers, &dbi)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {
 			showUsage()
 		} else {
-			runDump(*flagDumpDir, &dbInfo)
+			runDump(*flagDumpDir, &dbi)
 		}
 	} else if *flagServer {
 		if *flagTablePath == "" || *flagBackupPath == "" {
