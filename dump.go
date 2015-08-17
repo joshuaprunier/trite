@@ -1,4 +1,4 @@
-package dump
+package main
 
 import (
 	"database/sql"
@@ -8,8 +8,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/joshuaprunier/trite/common"
 )
 
 const (
@@ -18,20 +16,8 @@ const (
 	filePerms = 0644
 )
 
-// CreateInfoStruct stores creation information for procedures, functions, triggers and views
-type (
-	CreateInfoStruct struct {
-		Name          string
-		SqlMode       string
-		Create        string
-		CharsetClient string
-		Collation     string
-		DbCollation   string
-	}
-)
-
 // RunDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
-func RunDump(dir string, dbInfo *common.DbInfoStruct) {
+func runDump(dir string, dbInfo *dbInfoStruct) {
 	// Trim trailing slash if provided by user
 	dir = strings.TrimSuffix(dir, "/")
 
@@ -40,7 +26,7 @@ func RunDump(dir string, dbInfo *common.DbInfoStruct) {
 	fmt.Println()
 
 	// Return a database connection
-	db, err := common.DbConn(dbInfo)
+	db, err := dbConn(dbInfo)
 	defer db.Close()
 
 	// Problem connecting to database
@@ -55,7 +41,7 @@ func RunDump(dir string, dbInfo *common.DbInfoStruct) {
 
 	// Create dump directory
 	err = os.MkdirAll(dumpdir, dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	// Schema loop
 	count := 0
@@ -94,14 +80,14 @@ func RunDump(dir string, dbInfo *common.DbInfoStruct) {
 // schemaList returns a string slice of schemas to process. MySQL specific schemas like mysql, information_schema and performance_schema are omitted.
 func schemaList(db *sql.DB) []string {
 	rows, err := db.Query("show databases")
-	common.CheckErr(err)
+	checkErr(err)
 
 	// Get schema list
 	schemas := []string{}
 	var database string
 	for rows.Next() {
 		err = rows.Scan(&database)
-		common.CheckErr(err)
+		checkErr(err)
 
 		if database == "mysql" || database == "information_schema" || database == "performance_schema" {
 			continue // do nothing
@@ -117,15 +103,15 @@ func schemaList(db *sql.DB) []string {
 func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 	var err error
 	err = os.Mkdir(dumpdir+"/"+schema, dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var ignore string
 	var stmt string
-	err = db.QueryRow("show create schema "+common.AddQuotes(schema)).Scan(&ignore, &stmt)
-	common.CheckErr(err)
+	err = db.QueryRow("show create schema "+addQuotes(schema)).Scan(&ignore, &stmt)
+	checkErr(err)
 
 	err = ioutil.WriteFile(dumpdir+"/"+schema+"/"+schema+".sql", []byte(stmt+";\n"), filePerms)
-	common.CheckErr(err)
+	checkErr(err)
 }
 
 // dumpTables creates files containing table creation statments. It processes all tables for the schema passed to it. The /tables directory is hardcoded and expected by trite client code.
@@ -133,24 +119,24 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 	var err error
 	count := 0
 	err = os.Mkdir(dumpdir+"/"+schema+"/tables", dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var rows *sql.Rows
 	rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'BASE TABLE'")
-	common.CheckErr(err)
+	checkErr(err)
 
 	var tableName string
 	var ignore string
 	var stmt string
 	for rows.Next() {
 		err = rows.Scan(&tableName)
-		common.CheckErr(err)
+		checkErr(err)
 
-		err = db.QueryRow("show create table "+common.AddQuotes(schema)+"."+common.AddQuotes(tableName)).Scan(&ignore, &stmt)
-		common.CheckErr(err)
+		err = db.QueryRow("show create table "+addQuotes(schema)+"."+addQuotes(tableName)).Scan(&ignore, &stmt)
+		checkErr(err)
 
 		err = ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), filePerms)
-		common.CheckErr(err)
+		checkErr(err)
 
 		count++
 	}
@@ -163,27 +149,27 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 	var err error
 	count := 0
 	err = os.Mkdir(dumpdir+"/"+schema+"/procedures", dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var rows *sql.Rows
 	rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'PROCEDURE'")
-	common.CheckErr(err)
+	checkErr(err)
 
 	var procName string
 	for rows.Next() {
 		err = rows.Scan(&procName)
-		common.CheckErr(err)
+		checkErr(err)
 
-		var procInfo common.CreateInfoStruct
-		err = db.QueryRow("show create procedure "+common.AddQuotes(schema)+"."+common.AddQuotes(procName)).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
-		common.CheckErr(err)
+		var procInfo createInfoStruct
+		err = db.QueryRow("show create procedure "+addQuotes(schema)+"."+addQuotes(procName)).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
+		checkErr(err)
 
 		var jbyte []byte
 		jbyte, err = json.MarshalIndent(procInfo, "", "  ")
-		common.CheckErr(err)
+		checkErr(err)
 
 		err = ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, filePerms)
-		common.CheckErr(err)
+		checkErr(err)
 
 		count++
 	}
@@ -196,27 +182,27 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 	var err error
 	count := 0
 	err = os.Mkdir(dumpdir+"/"+schema+"/functions", dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var rows *sql.Rows
 	rows, err = db.Query("select routine_name from information_schema.routines where routine_schema='" + schema + "' and routine_type = 'FUNCTION'")
-	common.CheckErr(err)
+	checkErr(err)
 
 	var funcName string
 	for rows.Next() {
 		err = rows.Scan(&funcName)
-		common.CheckErr(err)
+		checkErr(err)
 
-		var funcInfo common.CreateInfoStruct
-		err = db.QueryRow("show create function "+common.AddQuotes(schema)+"."+common.AddQuotes(funcName)).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
-		common.CheckErr(err)
+		var funcInfo createInfoStruct
+		err = db.QueryRow("show create function "+addQuotes(schema)+"."+addQuotes(funcName)).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
+		checkErr(err)
 
 		var jbyte []byte
 		jbyte, err = json.MarshalIndent(funcInfo, "", "  ")
-		common.CheckErr(err)
+		checkErr(err)
 
 		err = ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, filePerms)
-		common.CheckErr(err)
+		checkErr(err)
 
 		count++
 	}
@@ -230,27 +216,27 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 	count := 0
 
 	err = os.Mkdir(dumpdir+"/"+schema+"/triggers", dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var rows *sql.Rows
 	rows, err = db.Query("select trigger_name from information_schema.triggers where trigger_schema='" + schema + "'")
-	common.CheckErr(err)
+	checkErr(err)
 
 	var trigName string
 	for rows.Next() {
 		err = rows.Scan(&trigName)
-		common.CheckErr(err)
+		checkErr(err)
 
-		var trigInfo common.CreateInfoStruct
-		err = db.QueryRow("show create trigger "+common.AddQuotes(schema)+"."+common.AddQuotes(trigName)).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
-		common.CheckErr(err)
+		var trigInfo createInfoStruct
+		err = db.QueryRow("show create trigger "+addQuotes(schema)+"."+addQuotes(trigName)).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
+		checkErr(err)
 
 		var jbyte []byte
 		jbyte, err = json.MarshalIndent(trigInfo, "", "  ")
-		common.CheckErr(err)
+		checkErr(err)
 
 		err = ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, filePerms)
-		common.CheckErr(err)
+		checkErr(err)
 
 		count++
 	}
@@ -264,27 +250,27 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
 	count := 0
 
 	err = os.Mkdir(dumpdir+"/"+schema+"/views", dirPerms)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var rows *sql.Rows
 	rows, err = db.Query("select table_name from information_schema.tables where table_schema='" + schema + "' and table_type = 'VIEW'")
-	common.CheckErr(err)
+	checkErr(err)
 
 	var view string
 	for rows.Next() {
 		err = rows.Scan(&view)
-		common.CheckErr(err)
+		checkErr(err)
 
-		var viewInfo common.CreateInfoStruct
-		err = db.QueryRow("show create view "+common.AddQuotes(schema)+"."+common.AddQuotes(view)).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
-		common.CheckErr(err)
+		var viewInfo createInfoStruct
+		err = db.QueryRow("show create view "+addQuotes(schema)+"."+addQuotes(view)).Scan(&viewInfo.Name, &viewInfo.Create, &viewInfo.CharsetClient, &viewInfo.Collation)
+		checkErr(err)
 
 		var jbyte []byte
 		jbyte, err = json.MarshalIndent(viewInfo, "", "  ")
-		common.CheckErr(err)
+		checkErr(err)
 
 		err = ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, filePerms)
-		common.CheckErr(err)
+		checkErr(err)
 
 		count++
 	}

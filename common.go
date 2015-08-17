@@ -1,4 +1,4 @@
-package common
+package main
 
 import (
 	"database/sql"
@@ -18,7 +18,7 @@ const mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping t
 // Type definitions
 type (
 	// DbInfoStruct defines database connection information
-	DbInfoStruct struct {
+	dbInfoStruct struct {
 		User   string
 		Pass   string
 		Host   string
@@ -30,7 +30,7 @@ type (
 	}
 
 	// CreateInfoStruct stores creation information for procedures, functions, triggers and views
-	CreateInfoStruct struct {
+	createInfoStruct struct {
 		Name          string
 		SqlMode       string
 		Create        string
@@ -40,15 +40,15 @@ type (
 	}
 )
 
-// CheckErr is an error handling catch all. Frequent errors that come through here should be handled in the specific portion of the code where they originate.
-func CheckErr(e error) {
+// checkErr is an error handling catch all. Frequent errors that come through here should be handled in the specific portion of the code where they originate.
+func checkErr(e error) {
 	if e != nil {
 		log.Panic(e)
 	}
 }
 
 // ParseFileName splits a file name and returns two strings of the base and 3 digit extension
-func ParseFileName(text string) (string, string) {
+func parseFileName(text string) (string, string) {
 	ext := strings.Split(text, ".")
 	ext = ext[cap(ext)-1:]
 	ret := ext[0]
@@ -58,18 +58,18 @@ func ParseFileName(text string) (string, string) {
 }
 
 // AddQuotes adds backtick quotes in cases where identifiers are all numeric or match reserved keywords
-func AddQuotes(s string) string {
+func addQuotes(s string) string {
 	s = "`" + s + "`"
 	return s
 }
 
 // DbConn returns a db connection pointer, do some detection if we should connect as localhost(client) or tcp(dump). Localhost is to hopefully support protected db mode with skip networking. Utf8 character set hardcoded for all connections. Transaction control is left up to other worker functions.
-func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
+func dbConn(dbInfo *dbInfoStruct) (*sql.DB, error) {
 	// If password is blank prompt user - Not perfect as it prints the password typed to the screen
 	if dbInfo.Pass == "" {
 		fmt.Println("Enter password: ")
-		pwd, err := ReadPassword(0)
-		CheckErr(err)
+		pwd, err := readPassword(0)
+		checkErr(err)
 		dbInfo.Pass = string(pwd)
 	}
 
@@ -78,10 +78,10 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
 	var err error
 	if dbInfo.Sock != "" {
 		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@unix("+dbInfo.Sock+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
-		CheckErr(err)
+		checkErr(err)
 	} else if dbInfo.Host != "" {
 		db, err = sql.Open("mysql", dbInfo.User+":"+dbInfo.Pass+"@tcp("+dbInfo.Host+":"+dbInfo.Port+")/"+dbInfo.Schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
-		CheckErr(err)
+		checkErr(err)
 	} else {
 		fmt.Println("should be no else")
 	}
@@ -94,7 +94,7 @@ func DbConn(dbInfo *DbInfoStruct) (*sql.DB, error) {
 
 // ReadPassword is borrowed from the crypto/ssh/terminal sub repo to accept a password from stdin without local echo.
 // http://godoc.org/code.google.com/p/go.crypto/ssh/terminal#Terminal.ReadPassword
-func ReadPassword(fd int) ([]byte, error) {
+func readPassword(fd int) ([]byte, error) {
 	var oldState syscall.Termios
 	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
 		return nil, err

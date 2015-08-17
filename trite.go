@@ -11,11 +11,6 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
-
-	"github.com/joshuaprunier/trite/client"
-	"github.com/joshuaprunier/trite/common"
-	"github.com/joshuaprunier/trite/dump"
-	"github.com/joshuaprunier/trite/server"
 )
 
 // ShowUsage prints a help screen which details all three modes command line flags
@@ -89,7 +84,7 @@ func main() {
 
 	// Get working directory
 	wd, err := os.Getwd()
-	common.CheckErr(err)
+	checkErr(err)
 
 	// Profiling flags
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -125,7 +120,7 @@ func main() {
 	// CPU Profiling
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
-		common.CheckErr(err)
+		checkErr(err)
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
@@ -136,7 +131,7 @@ func main() {
 	}
 
 	// Populate dbInfo struct
-	dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
+	dbInfo := dbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
 
 	// Detect what functionality is being requested
 	if *flagClient {
@@ -154,19 +149,19 @@ func main() {
 			dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
 			dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
 
-			client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
+			runClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {
 			showUsage()
 		} else {
-			dump.RunDump(*flagDumpDir, &dbInfo)
+			runDump(*flagDumpDir, &dbInfo)
 		}
 	} else if *flagServer {
 		if *flagTablePath == "" || *flagBackupPath == "" {
 			showUsage()
 		} else {
-			server.RunServer(*flagTablePath, *flagBackupPath, *flagPort)
+			runServer(*flagTablePath, *flagBackupPath, *flagPort)
 		}
 	} else if *flagHelp {
 		showUsage()
@@ -179,7 +174,7 @@ func main() {
 	// Memory Profiling
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
-		common.CheckErr(err)
+		checkErr(err)
 		pprof.WriteHeapProfile(f)
 		defer f.Close()
 	}

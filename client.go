@@ -1,4 +1,4 @@
-package client
+package main
 
 import (
 	"bufio"
@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
-
-	"github.com/joshuaprunier/trite/common"
 )
 
 const mysqlPerms = 0660
@@ -37,14 +35,14 @@ type (
 )
 
 // RunClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruct) {
+func runClient(url string, port string, workers uint, dbInfo *dbInfoStruct) {
 
 	// Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
 	uid := dbInfo.UID
 	gid := dbInfo.GID
 
 	// Make a database connection
-	db, err := common.DbConn(dbInfo)
+	db, err := dbConn(dbInfo)
 	defer db.Close()
 
 	// Problem connecting to database
@@ -57,15 +55,15 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
 	var ignore string
 	var version string
 	err = db.QueryRow("show global variables like 'version'").Scan(&ignore, &version)
-	common.CheckErr(err)
+	checkErr(err)
 
 	var importFlag string
 	if strings.HasPrefix(version, "5.1") || strings.HasPrefix(version, "5.5") {
 		err = db.QueryRow("show global variables like '%innodb%import%'").Scan(&importFlag, &ignore)
-		common.CheckErr(err)
+		checkErr(err)
 
 		_, err = db.Exec("set global " + importFlag + "=1")
-		common.CheckErr(err)
+		checkErr(err)
 	} else if strings.HasPrefix(version, "5.6") || strings.HasPrefix(version, "10") {
 		// No import flag for 5.6 or MariaDB 10
 	} else {
@@ -76,7 +74,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
 	// Get MySQL datadir
 	var mysqldir string
 	err = db.QueryRow("show variables like 'datadir'").Scan(&ignore, &mysqldir)
-	common.CheckErr(err)
+	checkErr(err)
 
 	// Make sure mysql datadir is writable
 	err = ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
@@ -169,7 +167,7 @@ func RunClient(url string, port string, workers uint, dbInfo *common.DbInfoStruc
 // getURL is a small http.Get() wrapper
 func getURL(u string) *http.Response {
 	resp, err := http.Get(u)
-	common.CheckErr(err)
+	checkErr(err)
 
 	return resp
 }
@@ -205,7 +203,7 @@ func checkSchema(db *sql.DB, schema string, url string) {
 		defer resp.Body.Close()
 		stmt, _ := ioutil.ReadAll(resp.Body)
 		_, err = db.Exec(string(stmt))
-		common.CheckErr(err)
+		checkErr(err)
 
 		fmt.Println("	Created schema", schema)
 	}
@@ -213,12 +211,12 @@ func checkSchema(db *sql.DB, schema string, url string) {
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
 func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
-	filename, _ := common.ParseFileName(downloadInfo.table)
+	filename, _ := parseFileName(downloadInfo.table)
 
 	// Ensure backup exists and check the engine type
 	// Make separate function to determine engine type
 	resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".ibd") // Assume InnoDB first
-	common.CheckErr(err)
+	checkErr(err)
 
 	var engine string
 	extensions := []string{}
@@ -233,7 +231,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 		extensions = append(extensions, ".ibd")
 	} else {
 		resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
-		common.CheckErr(err)
+		checkErr(err)
 
 		if resp.StatusCode == 200 {
 			engine = "MyISAM"
@@ -269,7 +267,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 		// Checking this due to a bug encountered where XtraBackup did not create a tables .exp file
 		if extension == ".exp" {
 			resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".exp")
-			common.CheckErr(err)
+			checkErr(err)
 
 			if resp.StatusCode != 200 {
 				fmt.Println()
@@ -289,7 +287,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
 		// Request and write file
 		fo, err := os.Create(tmpfile)
-		common.CheckErr(err)
+		checkErr(err)
 		defer fo.Close()
 
 		// Chown to mysql user
@@ -304,7 +302,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 		sizeServer := ibdresp.ContentLength
 		var sizeDown int64
 		sizeDown, err = w.ReadFrom(ibdresp.Body) // int of file size returned here
-		common.CheckErr(err)
+		checkErr(err)
 		w.Flush() // Just in case
 
 		// Check if size of file downloaded matches size on server -- Add retry ability
@@ -314,7 +312,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
 			// Remove partial file download
 			err = os.Remove(tmpfile)
-			common.CheckErr(err)
+			checkErr(err)
 		}
 	}
 
@@ -324,12 +322,12 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 
 // applyTables performs all of the database actions required to restore a table
 func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
-	filename, _ := common.ParseFileName(downloadInfo.table)
+	filename, _ := parseFileName(downloadInfo.table)
 	schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
 
 	// Start db transaction
 	tx, err := db.Begin()
-	common.CheckErr(err)
+	checkErr(err)
 
 	// make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
 	_, err = tx.Exec("set session foreign_key_checks=0")
@@ -343,56 +341,56 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 		stmt, _ := ioutil.ReadAll(resp.Body)
 
 		// Drop table if exists
-		_, err := tx.Exec("drop table if exists " + common.AddQuotes(filename))
-		common.CheckErr(err)
+		_, err := tx.Exec("drop table if exists " + addQuotes(filename))
+		checkErr(err)
 
 		// Create table
 		_, err = tx.Exec(string(stmt))
-		common.CheckErr(err)
+		checkErr(err)
 
 		// Discard the tablespace
-		_, err = tx.Exec("alter table " + common.AddQuotes(filename) + " discard tablespace")
-		common.CheckErr(err)
+		_, err = tx.Exec("alter table " + addQuotes(filename) + " discard tablespace")
+		checkErr(err)
 
 		// Lock the table just in case
-		_, err = tx.Exec("lock table " + common.AddQuotes(filename) + " write")
-		common.CheckErr(err)
+		_, err = tx.Exec("lock table " + addQuotes(filename) + " write")
+		checkErr(err)
 
 		// Rename happens here
 		for _, extension := range downloadInfo.extensions {
 			err := os.Rename(downloadInfo.mysqldir+downloadInfo.schema+filename+extension+".trite", downloadInfo.mysqldir+downloadInfo.schema+filename+extension)
-			common.CheckErr(err)
+			checkErr(err)
 		}
 
 		// Import tablespace and analyze otherwise there will be no index statistics
-		_, err = tx.Exec("alter table " + common.AddQuotes(filename) + " import tablespace")
-		common.CheckErr(err)
+		_, err = tx.Exec("alter table " + addQuotes(filename) + " import tablespace")
+		checkErr(err)
 
-		_, err = tx.Exec("analyze local table " + common.AddQuotes(filename))
-		common.CheckErr(err)
+		_, err = tx.Exec("analyze local table " + addQuotes(filename))
+		checkErr(err)
 
 		// Unlock the table
 		_, err = tx.Exec("unlock tables")
-		common.CheckErr(err)
+		checkErr(err)
 
 		// Commit transaction
 		err = tx.Commit()
-		common.CheckErr(err)
+		checkErr(err)
 
 	case "MyISAM":
 		// Drop table if exists
-		_, err := tx.Exec("drop table if exists " + common.AddQuotes(filename))
-		common.CheckErr(err)
+		_, err := tx.Exec("drop table if exists " + addQuotes(filename))
+		checkErr(err)
 
 		// Rename happens here
 		for _, extension := range downloadInfo.extensions {
 			err = os.Rename(downloadInfo.mysqldir+downloadInfo.schema+filename+extension+".trite", downloadInfo.mysqldir+downloadInfo.schema+filename+extension)
-			common.CheckErr(err)
+			checkErr(err)
 		}
 
 		// Commit transaction
 		err = tx.Commit()
-		common.CheckErr(err)
+		checkErr(err)
 
 	default:
 		fmt.Println()
@@ -413,7 +411,7 @@ func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg 
 func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 	// Start transaction
 	tx, err := db.Begin()
-	common.CheckErr(err)
+	checkErr(err)
 
 	// Use schema
 	schemaTrimmed := strings.Trim(schema, "/")
@@ -429,15 +427,15 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 	if len(objects) > 0 { // ignore when path is empty
 		for _, object := range objects {
 
-			filename, _ := common.ParseFileName(object)
-			_, err := tx.Exec("drop " + objType + " if exists " + common.AddQuotes(filename))
+			filename, _ := parseFileName(object)
+			_, err := tx.Exec("drop " + objType + " if exists " + addQuotes(filename))
 			resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
 			defer resp.Body.Close()
 			stmt, _ := ioutil.ReadAll(resp.Body)
 
-			var objInfo common.CreateInfoStruct
+			var objInfo createInfoStruct
 			err = json.Unmarshal(stmt, &objInfo)
-			common.CheckErr(err)
+			checkErr(err)
 
 			// Set session level variables to recreate stored code properly
 			if objInfo.SqlMode != "" {
@@ -455,12 +453,12 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 
 			// Create object
 			_, err = tx.Exec(objInfo.Create)
-			common.CheckErr(err)
+			checkErr(err)
 
 		}
 	}
 
 	// Commit transaction
 	err = tx.Commit()
-	common.CheckErr(err)
+	checkErr(err)
 }
