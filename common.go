@@ -6,15 +6,23 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh/terminal"
 
 	_ "github.com/go-sql-driver/mysql" // Go MySQL driver
 )
 
-const mysqlTimeout = "3600"    // 1 hour - must be string
-const mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping thousands of tables
+const (
+	mysqlTimeout = "3600" // 1 hour - must be string
+
+	// Timeout length in seconds where ctrl+c is ignored.
+	signalTimeout = 3
+
+	mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping thousands of tables
+)
 
 type (
 	// mysqlCredentials defines database connection information
@@ -93,4 +101,36 @@ func (dbi *mysqlCredentials) connect() (*sql.DB, error) {
 	err = db.Ping()
 
 	return db, err
+}
+
+// Catch signals
+func catchNotifications() {
+	state, err := terminal.GetState(int(os.Stdin.Fd()))
+	checkErr(err)
+
+	// Deal with SIGINT
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	var timer time.Time
+	go func() {
+		for sig := range sigChan {
+			// Prevent exiting on accidental signal send
+			if time.Now().Sub(timer) < time.Second*signalTimeout {
+				terminal.Restore(int(os.Stdin.Fd()), state)
+				os.Exit(0)
+			}
+
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, sig, "signal caught!")
+			fmt.Fprintf(os.Stderr, "Send signal again within %v seconds to exit\n", signalTimeout)
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+
+			timer = time.Now()
+		}
+	}()
 }
