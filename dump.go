@@ -16,8 +16,8 @@ const (
 	filePerms = 0644
 )
 
-// RunDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
-func runDump(dir string, dbi *mysqlCredentials) {
+// startDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
+func startDump(dir string, dbi *mysqlCredentials) {
 	// Trim trailing slash if provided by user
 	dir = strings.TrimSuffix(dir, "/")
 

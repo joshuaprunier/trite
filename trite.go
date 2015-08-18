@@ -117,7 +117,7 @@ func main() {
 			// Confirm mysql user exists
 			mysqlUser, err := user.Lookup("mysql")
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 
@@ -125,19 +125,19 @@ func main() {
 			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
 			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			runClient(*flagServerHost, *flagPort, *flagWorkers, &dbi)
+			startClient(*flagServerHost, *flagPort, *flagWorkers, &dbi)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {
 			showUsage()
 		} else {
-			runDump(*flagDumpDir, &dbi)
+			startDump(*flagDumpDir, &dbi)
 		}
 	} else if *flagServer {
 		if *flagTablePath == "" || *flagBackupPath == "" {
 			showUsage()
 		} else {
-			runServer(*flagTablePath, *flagBackupPath, *flagPort)
+			startServer(*flagTablePath, *flagBackupPath, *flagPort)
 		}
 	} else if *flagHelp {
 		showUsage()

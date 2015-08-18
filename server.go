@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// RunServer receives a port number and a directory path for create definitions output by trite in dump mode and another directory path with an xtrabackup processed with the --export flag
-func runServer(tablePath string, backupPath string, port string) {
+// startServer receives a port number and a directory path for create definitions output by trite in dump mode and another directory path with an xtrabackup processed with the --export flag
+func startServer(tablePath string, backupPath string, port string) {
 	// Make sure directory passed in has trailing slash
 	if strings.HasSuffix(backupPath, "/") == false {
 		backupPath = backupPath + "/"
@@ -30,6 +30,7 @@ func runServer(tablePath string, backupPath string, port string) {
 	// Start HTTP server listener
 	fmt.Println()
 	fmt.Println("Starting server listening on port", port)
+	http.HandleFunc("/", rootHandler)
 	http.Handle("/tables/", http.StripPrefix("/tables/", http.FileServer(http.Dir(tablePath))))
 	http.Handle("/backups/", http.StripPrefix("/backups/", http.FileServer(http.Dir(backupPath))))
 	err := http.ListenAndServe(":"+port, nil)
@@ -71,4 +72,20 @@ func verifyBackup(dir string, flag bool) bool {
 		}
 	}
 	return flag
+}
+
+// rootHandler is a convenience landing page with links to the dump & backup files
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, `
+	<html>
+		<head>
+			<title>TRITE</title>
+		</head>
+		<body>
+			<a href="/tables">tables</a>
+			<br>
+			<a href="/backups">backups</a>
+		</body>
+	</html>
+	`)
 }

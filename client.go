@@ -34,8 +34,8 @@ type (
 	}
 )
 
-// RunClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func runClient(url string, port string, workers uint, dbi *mysqlCredentials) {
+// startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
+func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 
 	// Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
 	uid := dbi.uid
