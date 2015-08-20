@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
+	"path"
 	"time"
 )
 
@@ -14,14 +14,12 @@ const (
 	stamp     = "20060102150405"
 	dirPerms  = 0755
 	filePerms = 0644
+	extension = ".sql"
 )
 
 // startDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
 func startDump(dir string, dbi *mysqlCredentials) {
-	// Trim trailing slash if provided by user
-	dir = strings.TrimSuffix(dir, "/")
-
-	dumpdir := dir + "/" + dbi.host + "_dump" + time.Now().Format(stamp)
+	dumpdir := path.Join(dir, dbi.host+"_dump"+time.Now().Format(stamp))
 	fmt.Println("Dumping to:", dumpdir)
 	fmt.Println()
 
@@ -31,7 +29,7 @@ func startDump(dir string, dbi *mysqlCredentials) {
 
 	// Problem connecting to database
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -48,27 +46,33 @@ func startDump(dir string, dbi *mysqlCredentials) {
 	total := 0
 	fmt.Println()
 	for _, schema := range schemas {
-		total++ // for schema dump
+		total++
+		// Dump schema create
 		fmt.Print(schema, ": ")
-		dumpSchema(db, dumpdir, schema) // Dump schema create
+		dumpSchema(db, dumpdir, schema)
 
-		count = dumpTables(db, dumpdir, schema) // Dump table creation statements
+		// Dump table creation statements
+		count = dumpTables(db, dumpdir, schema)
 		total = total + count
 		fmt.Print(count, " tables, ")
 
-		count = dumpProcs(db, dumpdir, schema) // Dump procedure creation statements
+		// Dump procedure creation statements
+		count = dumpProcs(db, dumpdir, schema)
 		total = total + count
 		fmt.Print(count, " procedures, ")
 
-		count = dumpFuncs(db, dumpdir, schema) // Dump function creation statements
+		// Dump function creation statements
+		count = dumpFuncs(db, dumpdir, schema)
 		total = total + count
 		fmt.Print(count, " functions, ")
 
-		count = dumpTriggers(db, dumpdir, schema) // Dump trigger creation statements
+		// Dump trigger creation statements
+		count = dumpTriggers(db, dumpdir, schema)
 		total = total + count
 		fmt.Print(count, " triggers, ")
 
-		count = dumpViews(db, dumpdir, schema) // Dump view creation statements
+		// Dump view creation statements
+		count = dumpViews(db, dumpdir, schema)
 		total = total + count
 		fmt.Print(count, " views\n")
 	}
@@ -83,15 +87,13 @@ func schemaList(db *sql.DB) []string {
 	checkErr(err)
 
 	// Get schema list
-	schemas := []string{}
+	schemas := make([]string, 0)
 	var database string
 	for rows.Next() {
 		err = rows.Scan(&database)
 		checkErr(err)
 
-		if database == "mysql" || database == "information_schema" || database == "performance_schema" {
-			continue // do nothing
-		} else {
+		if database != "mysql" && database != "information_schema" && database != "performance_schema" {
 			schemas = append(schemas, database)
 		}
 	}
@@ -101,8 +103,10 @@ func schemaList(db *sql.DB) []string {
 
 // dumpSchema creates a file with the schema creation statement.
 func dumpSchema(db *sql.DB, dumpdir string, schema string) {
+	dir := path.Join(dumpdir, schema)
 	var err error
-	err = os.Mkdir(dumpdir+"/"+schema, dirPerms)
+
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var ignore string
@@ -110,15 +114,18 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 	err = db.QueryRow("show create schema "+addQuotes(schema)).Scan(&ignore, &stmt)
 	checkErr(err)
 
-	err = ioutil.WriteFile(dumpdir+"/"+schema+"/"+schema+".sql", []byte(stmt+";\n"), filePerms)
+	file := path.Join(dir, schema+extension)
+	err = ioutil.WriteFile(file, []byte(stmt+";\n"), filePerms)
 	checkErr(err)
 }
 
 // dumpTables creates files containing table creation statments. It processes all tables for the schema passed to it. The /tables directory is hardcoded and expected by trite client code.
 func dumpTables(db *sql.DB, dumpdir string, schema string) int {
+	dir := path.Join(dumpdir, schema, "tables")
 	var err error
 	count := 0
-	err = os.Mkdir(dumpdir+"/"+schema+"/tables", dirPerms)
+
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var rows *sql.Rows
@@ -135,7 +142,8 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 		err = db.QueryRow("show create table "+addQuotes(schema)+"."+addQuotes(tableName)).Scan(&ignore, &stmt)
 		checkErr(err)
 
-		err = ioutil.WriteFile(dumpdir+"/"+schema+"/tables/"+tableName+".sql", []byte(stmt+";\n"), filePerms)
+		file := path.Join(dir, tableName+extension)
+		err = ioutil.WriteFile(file, []byte(stmt+";\n"), filePerms)
 		checkErr(err)
 
 		count++
@@ -146,9 +154,11 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpProcs creates files containing procedure creation statments. It processes all procedures for the schema passed to it. The /procedures directory is hardcoded and expected by trite client code.
 func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
+	dir := path.Join(dumpdir, schema, "procedures")
 	var err error
 	count := 0
-	err = os.Mkdir(dumpdir+"/"+schema+"/procedures", dirPerms)
+
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var rows *sql.Rows
@@ -168,7 +178,8 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(procInfo, "", "  ")
 		checkErr(err)
 
-		err = ioutil.WriteFile(dumpdir+"/"+schema+"/procedures/"+procName+".sql", jbyte, filePerms)
+		file := path.Join(dir, procName+extension)
+		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
 		count++
@@ -179,9 +190,11 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpFuncs creates files containing function creation statments. It processes all functions for the schema passed to it. The /functions directory is hardcoded and expected by trite client code.
 func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
+	dir := path.Join(dumpdir, schema, "functions")
 	var err error
 	count := 0
-	err = os.Mkdir(dumpdir+"/"+schema+"/functions", dirPerms)
+
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var rows *sql.Rows
@@ -201,7 +214,8 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(funcInfo, "", "  ")
 		checkErr(err)
 
-		err = ioutil.WriteFile(dumpdir+"/"+schema+"/functions/"+funcName+".sql", jbyte, filePerms)
+		file := path.Join(dir, funcName+extension)
+		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
 		count++
@@ -212,10 +226,11 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpTriggers creates files containing trigger creation statments. It processes all triggers for the schema passed to it. The /triggers directory is hardcoded and expected by trite client code.
 func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
+	dir := path.Join(dumpdir, schema, "triggers")
 	var err error
 	count := 0
 
-	err = os.Mkdir(dumpdir+"/"+schema+"/triggers", dirPerms)
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var rows *sql.Rows
@@ -235,7 +250,8 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(trigInfo, "", "  ")
 		checkErr(err)
 
-		err = ioutil.WriteFile(dumpdir+"/"+schema+"/triggers/"+trigName+".sql", jbyte, filePerms)
+		file := path.Join(dir, trigName+extension)
+		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
 		count++
@@ -246,10 +262,11 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 
 // dumpViews creates files containing view creation statments. It processes all views for the schema passed to it. The /views directory is hardcoded and expected by trite client code.
 func dumpViews(db *sql.DB, dumpdir string, schema string) int {
+	dir := path.Join(dumpdir, schema, "views")
 	var err error
 	count := 0
 
-	err = os.Mkdir(dumpdir+"/"+schema+"/views", dirPerms)
+	err = os.Mkdir(dir, dirPerms)
 	checkErr(err)
 
 	var rows *sql.Rows
@@ -269,7 +286,8 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(viewInfo, "", "  ")
 		checkErr(err)
 
-		err = ioutil.WriteFile(dumpdir+"/"+schema+"/views/"+view+".sql", jbyte, filePerms)
+		file := path.Join(dir, view+extension)
+		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
 		count++
