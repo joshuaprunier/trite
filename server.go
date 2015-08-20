@@ -19,11 +19,11 @@ func startServer(tablePath string, backupPath string, port string) {
 	// Ensure the backup has been prepared for transporting with --export
 	check := verifyBackup(backupPath, false)
 	if check == false {
-		fmt.Println()
-		fmt.Println()
-		fmt.Println("It appears that --export has not be run on your backups!")
-		fmt.Println()
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "It appears that --export has not be run on your backups!")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr)
 		os.Exit(1)
 	}
 
@@ -38,11 +38,11 @@ func startServer(tablePath string, backupPath string, port string) {
 	// Check if port is already in use
 	if err != nil {
 		if err.Error() == "listen tcp :"+port+": bind: address already in use" {
-			fmt.Println()
-			fmt.Println()
-			fmt.Println("ERROR: Port", port, "is already in use!")
-			fmt.Println()
-			fmt.Println()
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "ERROR: Port", port, "is already in use!")
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr)
 			os.Exit(1)
 		} else {
 			checkErr(err)
