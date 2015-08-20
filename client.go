@@ -37,17 +37,13 @@ type (
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 
-	// Pull some database variables out of struct -- might want to just pass the struct and pull out in child functions as well
-	uid := dbi.uid
-	gid := dbi.gid
-
 	// Make a database connection
 	db, err := dbi.connect()
 	defer db.Close()
 
 	// Problem connecting to database
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -67,7 +63,7 @@ func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 	} else if strings.HasPrefix(version, "5.6") || strings.HasPrefix(version, "10") {
 		// No import flag for 5.6 or MariaDB 10
 	} else {
-		fmt.Println(version, "is not supported")
+		fmt.Fprintln(os.Stderr, version, "is not supported")
 		os.Exit(1)
 	}
 
@@ -79,10 +75,10 @@ func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 	// Make sure mysql datadir is writable
 	err = ioutil.WriteFile(mysqldir+"/trite_test", []byte("delete\n"), mysqlPerms)
 	if err != nil {
-		fmt.Println()
-		fmt.Println("The MySQL data directory is not writable as this user!")
-		fmt.Println()
-		os.Exit(0)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "The MySQL data directory is not writable as this user!")
+		fmt.Fprintln(os.Stderr)
+		os.Exit(1)
 	} else {
 		os.Remove(mysqldir + "/trite_test")
 	}
@@ -92,20 +88,20 @@ func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 	backurl := "http://" + url + ":" + port + "/backups/"
 
 	// Verify server urls are accessible
-	_, ping1 := http.Head(taburl)
-	if ping1 != nil {
-		fmt.Println()
-		fmt.Println()
-		fmt.Println("Problem connecting to", taburl)
-		fmt.Println("Check that the server is running, port number is correct or that a firewall is not blocking access")
-		os.Exit(0)
+	_, err = http.Head(taburl)
+	if err != nil {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Problem connecting to", taburl)
+		fmt.Fprintln(os.Stderr, "Check that the server is running, port number is correct or that a firewall is not blocking access")
+		os.Exit(1)
 	}
 
-	_, ping2 := http.Head(backurl)
-	if ping2 != nil {
-		fmt.Println("Problem connecting to", backurl)
-		fmt.Println("Check that the server is running, port number is correct or that a firewall is not blocking access")
-		os.Exit(0)
+	_, err = http.Head(backurl)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Problem connecting to", backurl)
+		fmt.Fprintln(os.Stderr, "Check that the server is running, port number is correct or that a firewall is not blocking access")
+		os.Exit(1)
 	}
 
 	// Parse html and get a list of schemas to transport
@@ -130,7 +126,7 @@ func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 		if len(tables) > 0 { // ignore when path is empty
 			for _, table := range tables {
 
-				downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: uid, gid: gid, version: version}
+				downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
 
 				// Infinite loop to keep active go routines to 5 or less
 				for {
@@ -174,7 +170,7 @@ func getURL(u string) *http.Response {
 
 // parseAnchor returns a slice of files and directories from a HTTP response. This function requires the google net/html sub repo.
 func parseAnchor(r *http.Response) []string {
-	txt := []string{}
+	txt := make([]string, 0)
 	tok := html.NewTokenizer(r.Body)
 
 	for {
@@ -219,7 +215,7 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 	checkErr(err)
 
 	var engine string
-	extensions := []string{}
+	extensions := make([]string, 0)
 	if resp.StatusCode == 200 {
 		engine = "InnoDB"
 
