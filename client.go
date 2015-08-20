@@ -35,7 +35,7 @@ type (
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
+func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCredentials) {
 
 	// Make a database connection
 	db, err := dbi.connect()
@@ -84,24 +84,20 @@ func startClient(url string, port string, workers uint, dbi *mysqlCredentials) {
 	}
 
 	// URL variables
-	taburl := "http://" + url + ":" + port + "/tables/"
-	backurl := "http://" + url + ":" + port + "/backups/"
+	taburl := "http://" + triteURL + ":" + tritePort + "/tables/"
+	backurl := "http://" + triteURL + ":" + tritePort + "/backups/"
 
 	// Verify server urls are accessible
-	_, err = http.Head(taburl)
-	if err != nil {
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "Problem connecting to", taburl)
-		fmt.Fprintln(os.Stderr, "Check that the server is running, port number is correct or that a firewall is not blocking access")
-		os.Exit(1)
-	}
-
-	_, err = http.Head(backurl)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Problem connecting to", backurl)
-		fmt.Fprintln(os.Stderr, "Check that the server is running, port number is correct or that a firewall is not blocking access")
-		os.Exit(1)
+	urls := []string{taburl, backurl}
+	for _, url := range urls {
+		_, err = http.Head(url)
+		if err != nil {
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "Problem connecting to", url)
+			fmt.Fprintln(os.Stderr, "Check that the server is running, port number is correct or that a firewall is not blocking access")
+			os.Exit(1)
+		}
 	}
 
 	// Parse html and get a list of schemas to transport
