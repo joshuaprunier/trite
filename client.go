@@ -21,6 +21,7 @@ const mysqlPerms = 0660
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
 	downloadInfoStruct struct {
+		db         *sql.DB
 		taburl     string
 		backurl    string
 		schema     string
@@ -119,10 +120,11 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		defer tablesDir.Body.Close()
 		tables := parseAnchor(tablesDir)
 
-		if len(tables) > 0 { // ignore when path is empty
+		// ignore when path is empty
+		if len(tables) > 0 {
 			for _, table := range tables {
 
-				downloadInfo := downloadInfoStruct{taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
+				downloadInfo := downloadInfoStruct{db: db, taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
 
 				// Infinite loop to keep active go routines to 5 or less
 				for {
@@ -135,7 +137,7 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 
 				wg.Add(1)
 				atomic.AddInt32(&active, 1)
-				go downloadTable(db, downloadInfo, &active, wg)
+				go downloadTable(downloadInfo, &active, wg)
 			}
 		}
 	}
@@ -202,7 +204,7 @@ func checkSchema(db *sql.DB, schema string, url string) {
 }
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
-func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+func downloadTable(downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
 	filename, _ := parseFileName(downloadInfo.table)
 
 	// Ensure backup exists and check the engine type
@@ -309,16 +311,16 @@ func downloadTable(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, w
 	}
 
 	// Call applyTables
-	applyTables(db, downloadInfo, active, wg)
+	applyTables(downloadInfo, active, wg)
 }
 
 // applyTables performs all of the database actions required to restore a table
-func applyTables(db *sql.DB, downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+func applyTables(downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
 	filename, _ := parseFileName(downloadInfo.table)
 	schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
 
 	// Start db transaction
-	tx, err := db.Begin()
+	tx, err := downloadInfo.db.Begin()
 	checkErr(err)
 
 	// make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
