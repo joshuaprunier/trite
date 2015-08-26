@@ -10,8 +10,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"golang.org/x/net/html"
 )
@@ -101,14 +99,24 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		}
 	}
 
-	// Parse html and get a list of schemas to transport
+	// Parse html and get a list of schemas to copy
 	base := getURL(taburl)
 	defer base.Body.Close()
 	schemas := parseAnchor(base)
 
+	// Start up download workers
+	var wg sync.WaitGroup
+	dl := make(chan downloadInfoStruct)
+	for i := 0; i < int(workers); i++ {
+		go func(i int) {
+			for d := range dl {
+				downloadTable(d)
+				wg.Done()
+			}
+		}(i)
+	}
+
 	// Loop through all schemas and apply tables
-	var active int32 //limit number of concurrent running applyTables()
-	wg := new(sync.WaitGroup)
 	for _, schema := range schemas {
 
 		// Check if schema exists
@@ -123,21 +131,9 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		// ignore when path is empty
 		if len(tables) > 0 {
 			for _, table := range tables {
-
-				downloadInfo := downloadInfoStruct{db: db, taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
-
-				// Infinite loop to keep active go routines to 5 or less
-				for {
-					if active < int32(workers) {
-						break
-					} else {
-						time.Sleep(1 * time.Second)
-					}
-				}
-
 				wg.Add(1)
-				atomic.AddInt32(&active, 1)
-				go downloadTable(downloadInfo, &active, wg)
+				downloadInfo := downloadInfoStruct{db: db, taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
+				dl <- downloadInfo
 			}
 		}
 	}
@@ -204,7 +200,7 @@ func checkSchema(db *sql.DB, schema string, url string) {
 }
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
-func downloadTable(downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+func downloadTable(downloadInfo downloadInfoStruct) {
 	filename, _ := parseFileName(downloadInfo.table)
 
 	// Ensure backup exists and check the engine type
@@ -240,10 +236,6 @@ func downloadTable(downloadInfo downloadInfoStruct, active *int32, wg *sync.Wait
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 			fmt.Println()
 
-			// Need to decrement since applyTables() will never be called
-			atomic.AddInt32(active, -1)
-			wg.Done()
-
 			return
 		}
 	}
@@ -270,10 +262,6 @@ func downloadTable(downloadInfo downloadInfoStruct, active *int32, wg *sync.Wait
 				fmt.Println("Skipping ...")
 				fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 				fmt.Println()
-
-				// Need to decrement since applyTables() will never be called
-				atomic.AddInt32(active, -1)
-				wg.Done()
 
 				return
 			}
@@ -311,11 +299,11 @@ func downloadTable(downloadInfo downloadInfoStruct, active *int32, wg *sync.Wait
 	}
 
 	// Call applyTables
-	applyTables(downloadInfo, active, wg)
+	applyTables(downloadInfo)
 }
 
 // applyTables performs all of the database actions required to restore a table
-func applyTables(downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGroup) {
+func applyTables(downloadInfo downloadInfoStruct) {
 	filename, _ := parseFileName(downloadInfo.table)
 	schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
 
@@ -397,8 +385,6 @@ func applyTables(downloadInfo downloadInfoStruct, active *int32, wg *sync.WaitGr
 
 	// Decrement active go routine counter
 	fmt.Println(schemaTrimmed + "." + filename + " has been restored")
-	atomic.AddInt32(active, -1)
-	wg.Done()
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
