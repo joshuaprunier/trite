@@ -40,6 +40,9 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	db, err := dbi.connect()
 	defer db.Close()
 
+	// Turn off idle connections
+	db.SetMaxIdleConns(0)
+
 	// Problem connecting to database
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
