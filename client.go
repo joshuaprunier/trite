@@ -109,8 +109,10 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	}
 
 	// Get a list of schemas from the trite server
-	base := getURL(taburl)
+	base, err := http.Get(taburl)
 	defer base.Body.Close()
+	checkErr(err)
+
 	schemas := parseAnchor(base)
 
 	// Start up download workers
@@ -133,8 +135,9 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
 
 		// Parse html and get a list of tables to transport
-		tablesDir := getURL(taburl + schema + "/tables")
+		tablesDir, err := http.Get(taburl + schema + "/tables")
 		defer tablesDir.Body.Close()
+		checkErr(err)
 		tables := parseAnchor(tablesDir)
 
 		// ignore when path is empty
@@ -161,14 +164,6 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	if importFlag != "" {
 		_, err = db.Exec("set global " + importFlag + "=0")
 	}
-}
-
-// getURL is a small http.Get() wrapper
-func getURL(u string) *http.Response {
-	resp, err := http.Get(u)
-	checkErr(err)
-
-	return resp
 }
 
 // parseAnchor returns a slice of files and directories from a HTTP response. This function requires the google net/html sub repo.
@@ -198,8 +193,9 @@ func checkSchema(db *sql.DB, schema string, url string) {
 	err := db.QueryRow("show databases like '" + schema + "'").Scan(&exists)
 
 	if err != nil {
-		resp := getURL(url)
+		resp, err := http.Get(url)
 		defer resp.Body.Close()
+		checkErr(err)
 		stmt, _ := ioutil.ReadAll(resp.Body)
 		_, err = db.Exec(string(stmt))
 		checkErr(err)
@@ -288,8 +284,9 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
-		ibdresp := getURL(urlfile)
+		ibdresp, err := http.Get(urlfile)
 		defer ibdresp.Body.Close()
+		checkErr(err)
 		sizeServer := ibdresp.ContentLength
 
 		var sizeDown int64
@@ -334,12 +331,13 @@ func applyTables(downloadInfo downloadInfoStruct) {
 	switch downloadInfo.engine {
 	case "InnoDB":
 		// Get table create
-		resp := getURL(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
+		resp, err := http.Get(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
 		defer resp.Body.Close()
+		checkErr(err)
 		stmt, _ := ioutil.ReadAll(resp.Body)
 
 		// Drop table if exists
-		_, err := tx.Exec("drop table if exists " + addQuotes(filename))
+		_, err = tx.Exec("drop table if exists " + addQuotes(filename))
 		checkErr(err)
 
 		// Create table
@@ -411,8 +409,9 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 	_, err = tx.Exec("set session foreign_key_checks=0")
 	_, err = tx.Exec("use " + schemaTrimmed)
 
-	loc := getURL(taburl + schema + "/" + objType + "s")
+	loc, err := http.Get(taburl + schema + "/" + objType + "s")
 	defer loc.Body.Close()
+	checkErr(err)
 	objects := parseAnchor(loc)
 	fmt.Println("Applying", objType+"s for", schemaTrimmed)
 
@@ -422,8 +421,9 @@ func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
 
 			filename, _ := parseFileName(object)
 			_, err := tx.Exec("drop " + objType + " if exists " + addQuotes(filename))
-			resp := getURL(taburl + schema + objType + "s/" + object) // ssssso hacky
+			resp, err := http.Get(taburl + schema + objType + "s/" + object)
 			defer resp.Body.Close()
+			checkErr(err)
 			stmt, _ := ioutil.ReadAll(resp.Body)
 
 			var objInfo createInfoStruct
