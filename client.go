@@ -11,10 +11,16 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/joshuaprunier/trite/internal/ioprogress"
+
 	"golang.org/x/net/html"
 )
 
-const mysqlPerms = 0660
+const (
+	mysqlPerms = 0660
+	//minDownloadProgressSize = 1073741824
+	minDownloadProgressSize = 104857600
+)
 
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
@@ -102,7 +108,7 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		}
 	}
 
-	// Parse html and get a list of schemas to copy
+	// Get a list of schemas from the trite server
 	base := getURL(taburl)
 	defer base.Body.Close()
 	schemas := parseAnchor(base)
@@ -204,6 +210,7 @@ func checkSchema(db *sql.DB, schema string, url string) {
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
 func downloadTable(downloadInfo downloadInfoStruct) {
+	fmt.Println("Restoring", strings.Trim(downloadInfo.schema, "/")+"."+downloadInfo.table)
 	filename, _ := parseFileName(downloadInfo.table)
 
 	// Ensure backup exists and check the engine type
@@ -283,10 +290,15 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		w := bufio.NewWriter(fo)
 		ibdresp := getURL(urlfile)
 		defer ibdresp.Body.Close()
-
 		sizeServer := ibdresp.ContentLength
+
 		var sizeDown int64
-		sizeDown, err = w.ReadFrom(ibdresp.Body) // int of file size returned here
+		if extension != ".exp" && sizeServer > minDownloadProgressSize {
+			prog := &ioprogress.Reader{Reader: ibdresp.Body, Size: ibdresp.ContentLength, DrawFunc: ioprogress.DrawTerminalf(os.Stdout, ioprogress.DrawTextFormatPercent)}
+			sizeDown, err = w.ReadFrom(prog)
+		} else {
+			sizeDown, err = w.ReadFrom(ibdresp.Body)
+		}
 		checkErr(err)
 		w.Flush() // Just in case
 
@@ -316,6 +328,7 @@ func applyTables(downloadInfo downloadInfoStruct) {
 
 	// make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
 	_, err = tx.Exec("set session foreign_key_checks=0")
+	_, err = tx.Exec("set session lock_wait_timeout=60")
 	_, err = tx.Exec("use " + schemaTrimmed)
 
 	switch downloadInfo.engine {
@@ -385,9 +398,6 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 		fmt.Println()
 	}
-
-	// Decrement active go routine counter
-	fmt.Println(schemaTrimmed + "." + filename + " has been restored")
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
