@@ -2,24 +2,21 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/joshuaprunier/trite/internal/ioprogress"
 
 	"golang.org/x/net/html"
-)
-
-const (
-	mysqlPerms = 0660
-	//minDownloadProgressSize = 1073741824
-	minDownloadProgressSize = 104857600
 )
 
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
@@ -39,6 +36,12 @@ type (
 	}
 )
 
+const (
+	mysqlPerms = 0660
+	//minDownloadProgressSize = 1073741824
+	minDownloadProgressSize = 104857600
+)
+
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCredentials) {
 
@@ -55,7 +58,7 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		os.Exit(1)
 	}
 
-	// Percona import variable differs between versions
+	// Detect MySQL version and set import flag for 5.1 & 5.5
 	var ignore string
 	var version string
 	err = db.QueryRow("show global variables like 'version'").Scan(&ignore, &version)
@@ -110,6 +113,7 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 
 	// Get a list of schemas from the trite server
 	base, err := http.Get(taburl)
+	checkHTTP(base, taburl)
 	defer base.Body.Close()
 	checkErr(err)
 
@@ -131,11 +135,11 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	for _, schema := range schemas {
 
 		// Check if schema exists
-		schemaTrimmed := strings.Trim(schema, "/")
-		checkSchema(db, schemaTrimmed, taburl+schema+schemaTrimmed+".sql")
+		checkSchema(db, schema, taburl+path.Join(schema, schema+sqlExtension))
 
 		// Parse html and get a list of tables to transport
-		tablesDir, err := http.Get(taburl + schema + "/tables")
+		tablesDir, err := http.Get(taburl + path.Join(schema, "tables"))
+		checkHTTP(tablesDir, taburl+path.Join(schema, "tables"))
 		defer tablesDir.Body.Close()
 		checkErr(err)
 		tables := parseAnchor(tablesDir)
@@ -144,7 +148,17 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		if len(tables) > 0 {
 			for _, table := range tables {
 				wg.Add(1)
-				downloadInfo := downloadInfoStruct{db: db, taburl: taburl, backurl: backurl, schema: schema, table: table, mysqldir: mysqldir, uid: dbi.uid, gid: dbi.gid, version: version}
+				downloadInfo := downloadInfoStruct{
+					db:       db,
+					taburl:   taburl,
+					backurl:  backurl,
+					schema:   schema,
+					table:    table[:len(table)-4],
+					mysqldir: mysqldir,
+					uid:      dbi.uid,
+					gid:      dbi.gid,
+					version:  version,
+				}
 				dl <- downloadInfo
 			}
 		}
@@ -166,7 +180,14 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	}
 }
 
-// parseAnchor returns a slice of files and directories from a HTTP response. This function requires the google net/html sub repo.
+func checkHTTP(r *http.Response, url string) {
+	if r.StatusCode != 200 {
+		fmt.Println(r.StatusCode, "returned from:", url)
+		os.Exit(1)
+	}
+}
+
+// parseAnchor returns a string slice list of objects from an http.FileServer(). Trailing forward slashes from directories are removed.
 func parseAnchor(r *http.Response) []string {
 	txt := make([]string, 0)
 	tok := html.NewTokenizer(r.Body)
@@ -180,7 +201,7 @@ func parseAnchor(r *http.Response) []string {
 		if tt == html.TextToken {
 			a := tok.Raw()
 			if a[0] != 10 {
-				txt = append(txt, string(a))
+				txt = append(txt, string(bytes.Trim(a, "/")))
 			}
 		}
 	}
@@ -188,14 +209,16 @@ func parseAnchor(r *http.Response) []string {
 }
 
 // checkSchema creates a schema if it does not already exist
-func checkSchema(db *sql.DB, schema string, url string) {
+func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 	var exists string
 	err := db.QueryRow("show databases like '" + schema + "'").Scan(&exists)
 
 	if err != nil {
-		resp, err := http.Get(url)
+		resp, err := http.Get(schemaCreateURL)
+		checkHTTP(resp, schemaCreateURL)
 		defer resp.Body.Close()
 		checkErr(err)
+
 		stmt, _ := ioutil.ReadAll(resp.Body)
 		_, err = db.Exec(string(stmt))
 		checkErr(err)
@@ -206,12 +229,12 @@ func checkSchema(db *sql.DB, schema string, url string) {
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
 func downloadTable(downloadInfo downloadInfoStruct) {
-	fmt.Println("Restoring", strings.Trim(downloadInfo.schema, "/")+"."+downloadInfo.table)
-	filename, _ := parseFileName(downloadInfo.table)
+	fmt.Println("Restoring", downloadInfo.schema+"."+downloadInfo.table)
 
 	// Ensure backup exists and check the engine type
-	// Make separate function to determine engine type
-	resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".ibd") // Assume InnoDB first
+	// Assume InnoDB first
+	resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".ibd"))
+	checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".ibd"))
 	checkErr(err)
 
 	var engine string
@@ -226,7 +249,9 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 		extensions = append(extensions, ".ibd")
 	} else {
-		resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".MYD") // Check for MyISAM
+		// Check for MyISAM
+		resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".MYD"))
+		checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".MYD"))
 		checkErr(err)
 
 		if resp.StatusCode == 200 {
@@ -237,7 +262,7 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		} else {
 			fmt.Println()
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-			fmt.Println("The .ibd or .MYD file is missing for table", filename)
+			fmt.Println("The .ibd or .MYD file is missing for table", downloadInfo.table)
 			fmt.Println("Skipping ...")
 			fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 			fmt.Println()
@@ -252,19 +277,20 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 	// Loop through and download all files from extensions array
 	for _, extension := range extensions {
-		tmpfile := downloadInfo.mysqldir + downloadInfo.schema + filename + extension + ".trite"
-		urlfile := downloadInfo.backurl + downloadInfo.schema + filename + extension
+		tmpfile := filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite")
+		urlfile := downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+extension)
 
 		// Ensure the .exp exists if we expect it
 		// Checking this due to a bug encountered where XtraBackup did not create a tables .exp file
 		if extension == ".exp" {
-			resp, err := http.Head(downloadInfo.backurl + downloadInfo.schema + filename + ".exp")
+			resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".exp"))
+			checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".exp"))
 			checkErr(err)
 
 			if resp.StatusCode != 200 {
 				fmt.Println()
 				fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-				fmt.Println("The .exp file is missing for table", filename)
+				fmt.Println("The .exp file is missing for table", downloadInfo.table)
 				fmt.Println("Skipping ...")
 				fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 				fmt.Println()
@@ -285,19 +311,24 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
 		ibdresp, err := http.Get(urlfile)
+		checkHTTP(ibdresp, urlfile)
 		defer ibdresp.Body.Close()
 		checkErr(err)
 		sizeServer := ibdresp.ContentLength
 
 		var sizeDown int64
 		if extension != ".exp" && sizeServer > minDownloadProgressSize {
-			prog := &ioprogress.Reader{Reader: ibdresp.Body, Size: ibdresp.ContentLength, DrawFunc: ioprogress.DrawTerminalf(os.Stdout, ioprogress.DrawTextFormatPercent)}
+			prog := &ioprogress.Reader{
+				Reader:   ibdresp.Body,
+				Size:     ibdresp.ContentLength,
+				DrawFunc: ioprogress.DrawTerminalf(os.Stdout, ioprogress.DrawTextFormatPercent),
+			}
 			sizeDown, err = w.ReadFrom(prog)
 		} else {
 			sizeDown, err = w.ReadFrom(ibdresp.Body)
 		}
 		checkErr(err)
-		w.Flush() // Just in case
+		w.Flush()
 
 		// Check if size of file downloaded matches size on server -- Add retry ability
 		if sizeDown != sizeServer {
@@ -316,9 +347,6 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 // applyTables performs all of the database actions required to restore a table
 func applyTables(downloadInfo downloadInfoStruct) {
-	filename, _ := parseFileName(downloadInfo.table)
-	schemaTrimmed := strings.Trim(downloadInfo.schema, "/")
-
 	// Start db transaction
 	tx, err := downloadInfo.db.Begin()
 	checkErr(err)
@@ -326,18 +354,19 @@ func applyTables(downloadInfo downloadInfoStruct) {
 	// make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
 	_, err = tx.Exec("set session foreign_key_checks=0")
 	_, err = tx.Exec("set session lock_wait_timeout=60")
-	_, err = tx.Exec("use " + schemaTrimmed)
+	_, err = tx.Exec("use " + downloadInfo.schema)
 
 	switch downloadInfo.engine {
 	case "InnoDB":
 		// Get table create
-		resp, err := http.Get(downloadInfo.taburl + downloadInfo.schema + "tables/" + downloadInfo.table)
+		resp, err := http.Get(downloadInfo.taburl + path.Join(downloadInfo.schema, "tables", downloadInfo.table+sqlExtension))
+		checkHTTP(resp, downloadInfo.taburl+path.Join(downloadInfo.schema, "tables", downloadInfo.table+sqlExtension))
 		defer resp.Body.Close()
 		checkErr(err)
 		stmt, _ := ioutil.ReadAll(resp.Body)
 
 		// Drop table if exists
-		_, err = tx.Exec("drop table if exists " + addQuotes(filename))
+		_, err = tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		checkErr(err)
 
 		// Create table
@@ -345,24 +374,25 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		checkErr(err)
 
 		// Discard the tablespace
-		_, err = tx.Exec("alter table " + addQuotes(filename) + " discard tablespace")
+		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " discard tablespace")
 		checkErr(err)
 
 		// Lock the table just in case
-		_, err = tx.Exec("lock table " + addQuotes(filename) + " write")
+		_, err = tx.Exec("lock table " + addQuotes(downloadInfo.table) + " write")
 		checkErr(err)
 
 		// Rename happens here
 		for _, extension := range downloadInfo.extensions {
-			err := os.Rename(downloadInfo.mysqldir+downloadInfo.schema+filename+extension+".trite", downloadInfo.mysqldir+downloadInfo.schema+filename+extension)
+			err := os.Rename(filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite"),
+				filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension))
 			checkErr(err)
 		}
 
 		// Import tablespace and analyze otherwise there will be no index statistics
-		_, err = tx.Exec("alter table " + addQuotes(filename) + " import tablespace")
+		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
 		checkErr(err)
 
-		_, err = tx.Exec("analyze local table " + addQuotes(filename))
+		_, err = tx.Exec("analyze local table " + addQuotes(downloadInfo.table))
 		checkErr(err)
 
 		// Unlock the table
@@ -375,12 +405,13 @@ func applyTables(downloadInfo downloadInfoStruct) {
 
 	case "MyISAM":
 		// Drop table if exists
-		_, err := tx.Exec("drop table if exists " + addQuotes(filename))
+		_, err := tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		checkErr(err)
 
 		// Rename happens here
 		for _, extension := range downloadInfo.extensions {
-			err = os.Rename(downloadInfo.mysqldir+downloadInfo.schema+filename+extension+".trite", downloadInfo.mysqldir+downloadInfo.schema+filename+extension)
+			err = os.Rename(filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite"),
+				filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension))
 			checkErr(err)
 		}
 
@@ -391,7 +422,7 @@ func applyTables(downloadInfo downloadInfoStruct) {
 	default:
 		fmt.Println()
 		fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-		fmt.Println("Backup does not exist or", filename, "is not InnoDB or MyISAM")
+		fmt.Println("Backup does not exist or", downloadInfo.table, "is not InnoDB or MyISAM")
 		fmt.Println("Skipping ...")
 		fmt.Println("!!!!!!!!!!!!!!!!!!!!")
 		fmt.Println()
@@ -399,29 +430,33 @@ func applyTables(downloadInfo downloadInfoStruct) {
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
-func applyObjects(db *sql.DB, objType string, schema string, taburl string) {
+func applyObjects(db *sql.DB, objectType string, schema string, taburl string) {
+	objectTypePlural := objectType + "s"
+
 	// Start transaction
 	tx, err := db.Begin()
 	checkErr(err)
 
 	// Use schema
-	schemaTrimmed := strings.Trim(schema, "/")
 	_, err = tx.Exec("set session foreign_key_checks=0")
-	_, err = tx.Exec("use " + schemaTrimmed)
+	_, err = tx.Exec("use " + schema)
 
-	loc, err := http.Get(taburl + schema + "/" + objType + "s")
+	// Get a list of objects to create
+	loc, err := http.Get(taburl + path.Join(schema, objectTypePlural))
+	checkHTTP(loc, taburl+path.Join(schema, objectTypePlural))
 	defer loc.Body.Close()
 	checkErr(err)
 	objects := parseAnchor(loc)
-	fmt.Println("Applying", objType+"s for", schemaTrimmed)
+	fmt.Println("Applying", objectTypePlural, "for", schema)
 
 	// Only continue if there are objects to create
-	if len(objects) > 0 { // ignore when path is empty
+	if len(objects) > 0 {
 		for _, object := range objects {
 
-			filename, _ := parseFileName(object)
-			_, err := tx.Exec("drop " + objType + " if exists " + addQuotes(filename))
-			resp, err := http.Get(taburl + schema + objType + "s/" + object)
+			objectName, _ := parseFileName(object)
+			_, err := tx.Exec("drop " + objectType + " if exists " + addQuotes(objectName))
+			resp, err := http.Get(taburl + path.Join(schema, objectTypePlural, object))
+			checkHTTP(resp, taburl+path.Join(schema, objectTypePlural, object))
 			defer resp.Body.Close()
 			checkErr(err)
 			stmt, _ := ioutil.ReadAll(resp.Body)

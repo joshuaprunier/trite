@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	stamp     = "20060102150405"
-	dirPerms  = 0755
-	filePerms = 0644
-	extension = ".sql"
+	stamp        = "20060102150405"
+	dirPerms     = 0755
+	filePerms    = 0644
+	sqlExtension = ".sql"
 )
 
 // startDump copies creation statements for tables, procedures, functions, triggers and views to a file/directory structure at the path location that trite uses in client mode to restore tables.
@@ -117,7 +117,7 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 	err = db.QueryRow("show create schema "+addQuotes(schema)).Scan(&ignore, &stmt)
 	checkErr(err)
 
-	file := path.Join(dir, schema+extension)
+	file := path.Join(dir, schema+sqlExtension)
 	err = ioutil.WriteFile(file, []byte(stmt+";\n"), filePerms)
 	checkErr(err)
 }
@@ -145,7 +145,7 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 		err = db.QueryRow("show create table "+addQuotes(schema)+"."+addQuotes(tableName)).Scan(&ignore, &stmt)
 		checkErr(err)
 
-		file := path.Join(dir, tableName+extension)
+		file := path.Join(dir, tableName+sqlExtension)
 		err = ioutil.WriteFile(file, []byte(stmt+";\n"), filePerms)
 		checkErr(err)
 
@@ -181,7 +181,7 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(procInfo, "", "  ")
 		checkErr(err)
 
-		file := path.Join(dir, procName+extension)
+		file := path.Join(dir, procName+sqlExtension)
 		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
@@ -217,7 +217,7 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(funcInfo, "", "  ")
 		checkErr(err)
 
-		file := path.Join(dir, funcName+extension)
+		file := path.Join(dir, funcName+sqlExtension)
 		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
@@ -253,7 +253,7 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(trigInfo, "", "  ")
 		checkErr(err)
 
-		file := path.Join(dir, trigName+extension)
+		file := path.Join(dir, trigName+sqlExtension)
 		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
@@ -289,7 +289,7 @@ func dumpViews(db *sql.DB, dumpdir string, schema string) int {
 		jbyte, err = json.MarshalIndent(viewInfo, "", "  ")
 		checkErr(err)
 
-		file := path.Join(dir, view+extension)
+		file := path.Join(dir, view+sqlExtension)
 		err = ioutil.WriteFile(file, jbyte, filePerms)
 		checkErr(err)
 
