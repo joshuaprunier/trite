@@ -32,6 +32,7 @@ type (
 		gid        int
 		engine     string
 		extensions []string
+		triteFiles []string
 		version    string
 	}
 )
@@ -276,8 +277,9 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.extensions = extensions
 
 	// Loop through and download all files from extensions array
+	triteFiles := make([]string, 0)
 	for _, extension := range extensions {
-		tmpfile := filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite")
+		triteFile := filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite")
 		urlfile := downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+extension)
 
 		// Ensure the .exp exists if we expect it
@@ -300,13 +302,13 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		}
 
 		// Request and write file
-		fo, err := os.Create(tmpfile)
+		fo, err := os.Create(triteFile)
 		checkErr(err)
 		defer fo.Close()
 
 		// Chown to mysql user
-		os.Chown(tmpfile, downloadInfo.uid, downloadInfo.gid)
-		os.Chmod(tmpfile, mysqlPerms)
+		os.Chown(triteFile, downloadInfo.uid, downloadInfo.gid)
+		os.Chmod(triteFile, mysqlPerms)
 
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
@@ -333,13 +335,17 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		// Check if size of file downloaded matches size on server -- Add retry ability
 		if sizeDown != sizeServer {
 			fmt.Println("\n\nFile download size does not match size on server!")
-			fmt.Println(tmpfile, "has been removed.")
+			fmt.Println(triteFile, "has been removed.")
 
 			// Remove partial file download
-			err = os.Remove(tmpfile)
+			err = os.Remove(triteFile)
 			checkErr(err)
 		}
+
+		triteFiles = append(triteFiles, triteFile)
 	}
+
+	downloadInfo.triteFiles = triteFiles
 
 	// Call applyTables
 	applyTables(downloadInfo)
@@ -367,37 +373,124 @@ func applyTables(downloadInfo downloadInfoStruct) {
 
 		// Drop table if exists
 		_, err = tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
+
+			for _, triteFile := range downloadInfo.triteFiles {
+				os.Remove(triteFile)
+			}
+			tx.Rollback()
+
+			return
+		}
 
 		// Create table
 		_, err = tx.Exec(string(stmt))
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping...")
+
+			for _, triteFile := range downloadInfo.triteFiles {
+				os.Remove(triteFile)
+			}
+			tx.Rollback()
+
+			return
+		}
 
 		// Discard the tablespace
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " discard tablespace")
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error discarding the tablespace for", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
+
+			for _, triteFile := range downloadInfo.triteFiles {
+				os.Remove(triteFile)
+			}
+			tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
+			tx.Rollback()
+
+			return
+		}
 
 		// Lock the table just in case
 		_, err = tx.Exec("lock table " + addQuotes(downloadInfo.table) + " write")
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error locking", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
 
-		// Rename happens here
-		for _, extension := range downloadInfo.extensions {
-			err := os.Rename(filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite"),
-				filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension))
-			checkErr(err)
+			for _, triteFile := range downloadInfo.triteFiles {
+				os.Remove(triteFile)
+			}
+			tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
+			tx.Rollback()
+
+			return
 		}
 
-		// Import tablespace and analyze otherwise there will be no index statistics
-		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
-		checkErr(err)
+		// Rename trite download files
+		for _, triteFile := range downloadInfo.triteFiles {
+			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "\t*", "The was an error renaming", triteFile, "to", triteFile[:len(triteFile)-6])
+				fmt.Fprintln(os.Stderr, "\t*", err)
+				fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
 
+				for _, triteFile := range downloadInfo.triteFiles {
+					os.Remove(triteFile)
+				}
+				tx.Exec("unlock tables")
+				tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
+				tx.Rollback()
+
+				return
+			}
+
+		}
+
+		// Import the tablespace
+		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error importing the tablespace for", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
+
+			tx.Exec("unlock tables")
+			tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
+			tx.Rollback()
+
+			return
+		}
+
+		// Analyze the table otherwise there will be no index statistics
 		_, err = tx.Exec("analyze local table " + addQuotes(downloadInfo.table))
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error analyzing", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Restore should be complete, just run the analyze manually")
+
+			tx.Exec("unlock tables")
+			tx.Rollback()
+
+			return
+		}
 
 		// Unlock the table
 		_, err = tx.Exec("unlock tables")
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error unlocking", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Restore should be complete, just make sure the table lock does not linger")
+
+			tx.Rollback()
+
+			return
+		}
 
 		// Commit transaction
 		err = tx.Commit()
@@ -406,13 +499,35 @@ func applyTables(downloadInfo downloadInfoStruct) {
 	case "MyISAM":
 		// Drop table if exists
 		_, err := tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", err)
+			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
+
+			for _, triteFile := range downloadInfo.triteFiles {
+				os.Remove(triteFile)
+			}
+			tx.Rollback()
+
+			return
+		}
 
 		// Rename happens here
-		for _, extension := range downloadInfo.extensions {
-			err = os.Rename(filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite"),
-				filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension))
-			checkErr(err)
+		for _, triteFile := range downloadInfo.triteFiles {
+			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "\t*", "The was an error renaming", triteFile, "to", triteFile[:len(triteFile)-6])
+				fmt.Fprintln(os.Stderr, "\t*", err)
+				fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
+
+				for _, triteFile := range downloadInfo.triteFiles {
+					os.Remove(triteFile)
+				}
+				tx.Rollback()
+
+				return
+			}
+
 		}
 
 		// Commit transaction
@@ -420,12 +535,8 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		checkErr(err)
 
 	default:
-		fmt.Println()
-		fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-		fmt.Println("Backup does not exist or", downloadInfo.table, "is not InnoDB or MyISAM")
-		fmt.Println("Skipping ...")
-		fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-		fmt.Println()
+		fmt.Fprintln(os.Stderr, "\t*", "Backup does not exist or", downloadInfo.table, "is not InnoDB or MyISAM")
+		fmt.Fprintln(os.Stderr, "\t*", "Skipping")
 	}
 }
 
