@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joshuaprunier/trite/internal/ioprogress"
 
@@ -22,25 +24,33 @@ import (
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
 	downloadInfoStruct struct {
-		db         *sql.DB
-		taburl     string
-		backurl    string
-		schema     string
-		table      string
-		mysqldir   string
-		uid        int
-		gid        int
-		engine     string
-		extensions []string
-		triteFiles []string
-		version    string
+		db          *sql.DB
+		taburl      string
+		backurl     string
+		schema      string
+		table       string
+		mysqldir    string
+		uid         int
+		gid         int
+		engine      string
+		extensions  []string
+		triteFiles  []string
+		version     string
+		displayInfo displayInfoStruct
+		displayChan chan displayInfoStruct
+	}
+
+	displayInfoStruct struct {
+		w       io.Writer
+		fqTable string
+		status  string
 	}
 )
 
 const (
 	mysqlPerms = 0660
-	//minDownloadProgressSize = 1073741824
-	minDownloadProgressSize = 104857600
+	//minDownloadProgressSize = 5368709120 // 5GB
+	minDownloadProgressSize = 104857600 // 100MB
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
@@ -121,20 +131,39 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	schemas := parseAnchor(base)
 
 	// Start up download workers
-	var wg sync.WaitGroup
+	var wgDownload sync.WaitGroup
 	dl := make(chan downloadInfoStruct)
 	for i := 0; i < int(workers); i++ {
 		go func(i int) {
 			for d := range dl {
 				downloadTable(d)
-				wg.Done()
+				wgDownload.Done()
 			}
 		}(i)
 	}
 
+	// Single thread display info from concurrent processes
+	displayChan := make(chan displayInfoStruct)
+	go func() {
+		var table string
+
+		for displayInfo := range displayChan {
+			if table == "" {
+				table = displayInfo.fqTable
+			}
+			// A little hacky but gets the job done
+			fmt.Fprintf(displayInfo.w, strings.Repeat(" ", 150))
+			if table != displayInfo.fqTable {
+				table = displayInfo.fqTable
+				fmt.Fprintf(displayInfo.w, "\n")
+			}
+			fmt.Fprintf(displayInfo.w, "\r")
+			fmt.Fprintf(displayInfo.w, "%s: %s", displayInfo.status, displayInfo.fqTable)
+		}
+	}()
+
 	// Loop through all schemas and apply tables
 	for _, schema := range schemas {
-
 		// Check if schema exists
 		checkSchema(db, schema, taburl+path.Join(schema, schema+sqlExtension))
 
@@ -148,25 +177,29 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		// ignore when path is empty
 		if len(tables) > 0 {
 			for _, table := range tables {
-				wg.Add(1)
+				wgDownload.Add(1)
 				downloadInfo := downloadInfoStruct{
-					db:       db,
-					taburl:   taburl,
-					backurl:  backurl,
-					schema:   schema,
-					table:    table[:len(table)-4],
-					mysqldir: mysqldir,
-					uid:      dbi.uid,
-					gid:      dbi.gid,
-					version:  version,
+					db:          db,
+					taburl:      taburl,
+					backurl:     backurl,
+					schema:      schema,
+					table:       table[:len(table)-4],
+					mysqldir:    mysqldir,
+					uid:         dbi.uid,
+					gid:         dbi.gid,
+					version:     version,
+					displayChan: displayChan,
 				}
 				dl <- downloadInfo
 			}
 		}
 	}
-	wg.Wait()
+	wgDownload.Wait()
+
+	time.Sleep(1 * time.Millisecond)
 
 	// Loop through all schemas again and apply triggers, views, procedures & functions
+	fmt.Println()
 	fmt.Println()
 	objectTypes := []string{"trigger", "view", "procedure", "function"}
 	for _, schema := range schemas {
@@ -230,7 +263,10 @@ func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
 func downloadTable(downloadInfo downloadInfoStruct) {
-	fmt.Println("Restoring", downloadInfo.schema+"."+downloadInfo.table)
+	downloadInfo.displayInfo.w = os.Stdout
+	downloadInfo.displayInfo.fqTable = downloadInfo.schema + "." + downloadInfo.table
+	downloadInfo.displayInfo.status = "Starting Download"
+	downloadInfo.displayChan <- downloadInfo.displayInfo
 
 	// Ensure backup exists and check the engine type
 	// Assume InnoDB first
@@ -321,9 +357,10 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		var sizeDown int64
 		if extension != ".exp" && sizeServer > minDownloadProgressSize {
 			prog := &ioprogress.Reader{
-				Reader:   ibdresp.Body,
-				Size:     ibdresp.ContentLength,
-				DrawFunc: ioprogress.DrawTerminalf(os.Stdout, ioprogress.DrawTextFormatPercent),
+				Reader:     ibdresp.Body,
+				Size:       ibdresp.ContentLength,
+				DrawFunc:   ioprogress.DrawTerminalf(downloadInfo.displayInfo.w, ioprogress.DrawTextFormatPercent),
+				DrawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
 			}
 			sizeDown, err = w.ReadFrom(prog)
 		} else {
@@ -353,6 +390,9 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 // applyTables performs all of the database actions required to restore a table
 func applyTables(downloadInfo downloadInfoStruct) {
+	downloadInfo.displayInfo.status = "Applying"
+	downloadInfo.displayChan <- downloadInfo.displayInfo
+
 	// Start db transaction
 	tx, err := downloadInfo.db.Begin()
 	checkErr(err)
@@ -538,6 +578,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		fmt.Fprintln(os.Stderr, "\t*", "Backup does not exist or", downloadInfo.table, "is not InnoDB or MyISAM")
 		fmt.Fprintln(os.Stderr, "\t*", "Skipping")
 	}
+
+	downloadInfo.displayInfo.status = "DONE"
+	downloadInfo.displayChan <- downloadInfo.displayInfo
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.

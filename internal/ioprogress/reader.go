@@ -21,6 +21,7 @@ type Reader struct {
 	// progress bar.
 	DrawFunc     DrawFunc
 	DrawInterval time.Duration
+	DrawPrefix   string
 
 	progress int64
 	lastDraw time.Time
@@ -73,7 +74,7 @@ func (r *Reader) drawProgress() {
 
 	// Draw
 	f := r.drawFunc()
-	f(r.progress, r.Size)
+	f(r.DrawPrefix, r.progress, r.Size)
 
 	// Record this draw so that we don't draw again really quickly
 	r.lastDraw = time.Now()
@@ -83,10 +84,10 @@ func (r *Reader) finishProgress() {
 	// Only output the final draw if we drawed prior
 	if !r.lastDraw.IsZero() {
 		f := r.drawFunc()
-		f(r.progress, r.Size)
+		f(r.DrawPrefix, r.progress, r.Size)
 
 		// Print a newline
-		f(-1, -1)
+		//f("", -1, -1)
 
 		// Reset lastDraw so we don't finish again
 		var zeroDraw time.Time
