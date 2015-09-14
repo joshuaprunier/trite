@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshuaprunier/mysqlUTF8"
 	"github.com/joshuaprunier/trite/internal/ioprogress"
 
 	"golang.org/x/net/html"
@@ -24,20 +25,22 @@ import (
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
 	downloadInfoStruct struct {
-		db          *sql.DB
-		taburl      string
-		backurl     string
-		schema      string
-		table       string
-		mysqldir    string
-		uid         int
-		gid         int
-		engine      string
-		extensions  []string
-		triteFiles  []string
-		version     string
-		displayInfo displayInfoStruct
-		displayChan chan displayInfoStruct
+		db            *sql.DB
+		taburl        string
+		backurl       string
+		schema        string
+		table         string
+		encodedSchema string
+		encodedTable  string
+		mysqldir      string
+		uid           int
+		gid           int
+		engine        string
+		extensions    []string
+		triteFiles    []string
+		version       string
+		displayInfo   displayInfoStruct
+		displayChan   chan displayInfoStruct
 	}
 
 	displayInfoStruct struct {
@@ -190,6 +193,16 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 					version:     version,
 					displayChan: displayChan,
 				}
+
+				// Do filename encoding for schema and table if needed
+				if mysqlUTF8.NeedsEncoding(downloadInfo.schema) {
+					downloadInfo.encodedSchema = mysqlUTF8.EncodeFilename(downloadInfo.schema)
+				}
+				if mysqlUTF8.NeedsEncoding(downloadInfo.table) {
+					downloadInfo.encodedTable = mysqlUTF8.EncodeFilename(downloadInfo.table)
+				}
+
+				// Send downloadInfo into channel and begin download
 				dl <- downloadInfo
 			}
 		}
@@ -268,10 +281,24 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.displayInfo.status = "Starting Download"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
 
+	// Use encoded schema and table if present
+	var schemaFilename string
+	var tableFilename string
+	if downloadInfo.encodedSchema != "" {
+		schemaFilename = downloadInfo.encodedSchema
+	} else {
+		schemaFilename = downloadInfo.schema
+	}
+
+	if downloadInfo.encodedTable != "" {
+		tableFilename = downloadInfo.encodedTable
+	} else {
+		tableFilename = downloadInfo.table
+	}
+
 	// Ensure backup exists and check the engine type
 	// Assume InnoDB first
-	resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".ibd"))
-	checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".ibd"))
+	resp, err := http.Head(downloadInfo.backurl + path.Join(schemaFilename, tableFilename+".ibd"))
 	checkErr(err)
 
 	var engine string
@@ -287,8 +314,7 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		extensions = append(extensions, ".ibd")
 	} else {
 		// Check for MyISAM
-		resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".MYD"))
-		checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".MYD"))
+		resp, err := http.Head(downloadInfo.backurl + path.Join(schemaFilename, tableFilename+".MYD"))
 		checkErr(err)
 
 		if resp.StatusCode == 200 {
@@ -315,14 +341,14 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	// Loop through and download all files from extensions array
 	triteFiles := make([]string, 0)
 	for _, extension := range extensions {
-		triteFile := filepath.Join(downloadInfo.mysqldir, downloadInfo.schema, downloadInfo.table+extension+".trite")
-		urlfile := downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+extension)
+		triteFile := filepath.Join(downloadInfo.mysqldir, schemaFilename, tableFilename+extension+".trite")
+		urlfile := downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
 
 		// Ensure the .exp exists if we expect it
 		// Checking this due to a bug encountered where XtraBackup did not create a tables .exp file
 		if extension == ".exp" {
-			resp, err := http.Head(downloadInfo.backurl + path.Join(downloadInfo.schema, downloadInfo.table+".exp"))
-			checkHTTP(resp, downloadInfo.backurl+path.Join(downloadInfo.schema, downloadInfo.table+".exp"))
+			resp, err := http.Head(downloadInfo.backurl + path.Join(schemaFilename, tableFilename+".exp"))
+			checkHTTP(resp, downloadInfo.backurl+path.Join(schemaFilename, tableFilename+".exp"))
 			checkErr(err)
 
 			if resp.StatusCode != 200 {
@@ -400,7 +426,7 @@ func applyTables(downloadInfo downloadInfoStruct) {
 	// make the following code work for any settings -- need to preserve before changing so they can be changed back, figure out global vs session and how to handle not setting properly
 	_, err = tx.Exec("set session foreign_key_checks=0")
 	_, err = tx.Exec("set session lock_wait_timeout=60")
-	_, err = tx.Exec("use " + downloadInfo.schema)
+	_, err = tx.Exec("use " + addQuotes(downloadInfo.schema))
 
 	switch downloadInfo.engine {
 	case "InnoDB":
@@ -429,7 +455,7 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Create table
 		_, err = tx.Exec(string(stmt))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
+			fmt.Fprintln(os.Stderr, "\t*", "The was an error creating", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping...")
 
