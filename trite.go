@@ -17,7 +17,7 @@ func showUsage() {
 
     CLIENT MODE
     ===========
-    EXAMPLE: trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_host=server1 -workers=3
+    EXAMPLE: trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_host=server1
 
     -client: Runs locally on the database you wish to copy files to and connects to an trite server
     -user: MySQL user name
@@ -27,7 +27,6 @@ func showUsage() {
     -port: MySQL server port (default 3306)
     -server_host: Server name or ip hosting the backup and dump files
     -server_port: Port of trite server (default 12000)
-    -workers: Number of copy threads (default 1)
 
     DUMP MODE
     =========
@@ -77,7 +76,6 @@ func main() {
 	// Client flags
 	flagClient := flag.Bool("client", false, "Run in client mode")
 	flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
-	flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
 
 	// Dump flags
 	flagDump := flag.Bool("dump", false, "Run in dump mode")
@@ -125,7 +123,7 @@ func main() {
 			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
 			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			startClient(*flagServerHost, *flagPort, *flagWorkers, &dbi)
+			startClient(*flagServerHost, *flagPort, &dbi)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {

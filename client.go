@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/joshuaprunier/mysqlUTF8"
 	"github.com/joshuaprunier/trite/internal/ioprogress"
@@ -57,7 +56,7 @@ const (
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCredentials) {
+func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 
 	// Make a database connection
 	db, err := dbi.connect()
@@ -136,14 +135,12 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	// Start up download workers
 	var wgDownload sync.WaitGroup
 	dl := make(chan downloadInfoStruct)
-	for i := 0; i < int(workers); i++ {
-		go func(i int) {
-			for d := range dl {
-				downloadTable(d)
-				wgDownload.Done()
-			}
-		}(i)
-	}
+	go func() {
+		for d := range dl {
+			downloadTable(d)
+			wgDownload.Done()
+		}
+	}()
 
 	// Single thread display info from concurrent processes
 	displayChan := make(chan displayInfoStruct)
@@ -213,8 +210,6 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 		}
 	}
 	wgDownload.Wait()
-
-	time.Sleep(1 * time.Millisecond)
 
 	// Loop through all schemas again and apply triggers, views, procedures & functions
 	fmt.Println()
@@ -445,6 +440,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Drop table if exists
 		_, err = tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
@@ -460,6 +458,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Create table
 		_, err = tx.Exec(string(stmt))
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error creating", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping...")
@@ -475,6 +476,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Discard the tablespace
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " discard tablespace")
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error discarding the tablespace for", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
@@ -491,6 +495,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Lock the table just in case
 		_, err = tx.Exec("lock table " + addQuotes(downloadInfo.table) + " write")
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error locking", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
@@ -508,6 +515,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		for _, triteFile := range downloadInfo.triteFiles {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
+				downloadInfo.displayInfo.status = "ERROR"
+				downloadInfo.displayChan <- downloadInfo.displayInfo
+
 				fmt.Fprintln(os.Stderr, "\t*", "The was an error renaming", triteFile, "to", triteFile[:len(triteFile)-6])
 				fmt.Fprintln(os.Stderr, "\t*", err)
 				fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
@@ -527,6 +537,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Import the tablespace
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error importing the tablespace for", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Removing table, performing clean up and skipping")
@@ -541,6 +554,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Analyze the table otherwise there will be no index statistics
 		_, err = tx.Exec("analyze local table " + addQuotes(downloadInfo.table))
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error analyzing", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Restore should be complete, just run the analyze manually")
@@ -554,6 +570,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Unlock the table
 		_, err = tx.Exec("unlock tables")
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error unlocking", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Restore should be complete, just make sure the table lock does not linger")
@@ -571,6 +590,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		// Drop table if exists
 		_, err := tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
+			downloadInfo.displayInfo.status = "ERROR"
+			downloadInfo.displayChan <- downloadInfo.displayInfo
+
 			fmt.Fprintln(os.Stderr, "\t*", "The was an error dropping", downloadInfo.schema+"."+downloadInfo.table)
 			fmt.Fprintln(os.Stderr, "\t*", err)
 			fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
@@ -587,6 +609,9 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		for _, triteFile := range downloadInfo.triteFiles {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
+				downloadInfo.displayInfo.status = "ERROR"
+				downloadInfo.displayChan <- downloadInfo.displayInfo
+
 				fmt.Fprintln(os.Stderr, "\t*", "The was an error renaming", triteFile, "to", triteFile[:len(triteFile)-6])
 				fmt.Fprintln(os.Stderr, "\t*", err)
 				fmt.Fprintln(os.Stderr, "\t*", "Performing clean up and skipping")
