@@ -32,12 +32,10 @@ func DrawTerminal(w io.Writer) DrawFunc {
 // that is formatted with the given formatting function.
 func DrawTerminalf(w io.Writer, f DrawTextFormatFunc) DrawFunc {
 	var maxLength int
-	maxLength = 150
 
 	return func(prefix string, progress, total int64) error {
 		if progress == -1 && total == -1 {
-			_, err := fmt.Fprintf(w, "\n")
-			return err
+			fmt.Sprintf("%s%s", strings.Repeat(" ", maxLength))
 		}
 
 		// Make sure we pad it to the max length we've ever drawn so that

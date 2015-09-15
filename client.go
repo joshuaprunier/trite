@@ -149,19 +149,24 @@ func startClient(triteURL string, tritePort string, workers uint, dbi *mysqlCred
 	displayChan := make(chan displayInfoStruct)
 	go func() {
 		var table string
+		var lastDisplayLength int
 
 		for displayInfo := range displayChan {
 			if table == "" {
 				table = displayInfo.fqTable
 			}
-			// A little hacky but gets the job done
-			fmt.Fprintf(displayInfo.w, strings.Repeat(" ", 150))
+
+			// Write a newline for new table
 			if table != displayInfo.fqTable {
 				table = displayInfo.fqTable
 				fmt.Fprintf(displayInfo.w, "\n")
 			}
-			fmt.Fprintf(displayInfo.w, "\r")
-			fmt.Fprintf(displayInfo.w, "%s: %s", displayInfo.status, displayInfo.fqTable)
+
+			// Blank out previous and display new status
+			fmt.Fprintf(displayInfo.w, strings.Repeat(" ", lastDisplayLength)+"\r")
+			line := fmt.Sprintf("%s: %s", displayInfo.status, displayInfo.fqTable)
+			lastDisplayLength = len(line)
+			fmt.Fprintf(displayInfo.w, line+"\r")
 		}
 	}()
 
@@ -278,7 +283,7 @@ func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.displayInfo.w = os.Stdout
 	downloadInfo.displayInfo.fqTable = downloadInfo.schema + "." + downloadInfo.table
-	downloadInfo.displayInfo.status = "Starting Download"
+	downloadInfo.displayInfo.status = "Downloading"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
 
 	// Use encoded schema and table if present
@@ -605,7 +610,7 @@ func applyTables(downloadInfo downloadInfoStruct) {
 		fmt.Fprintln(os.Stderr, "\t*", "Skipping")
 	}
 
-	downloadInfo.displayInfo.status = "DONE"
+	downloadInfo.displayInfo.status = "Restored"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
 }
 
