@@ -87,7 +87,7 @@ func (r *Reader) finishProgress() {
 		f(r.DrawPrefix, r.progress, r.Size)
 
 		// Blank out the line
-		f("", -1, -1)
+		f(r.DrawPrefix, -1, -1)
 
 		// Reset lastDraw so we don't finish again
 		var zeroDraw time.Time

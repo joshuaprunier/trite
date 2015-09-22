@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joshuaprunier/mysqlUTF8"
 	"github.com/joshuaprunier/trite/internal/ioprogress"
@@ -40,6 +41,7 @@ type (
 		version       string
 		displayInfo   displayInfoStruct
 		displayChan   chan displayInfoStruct
+		wgApply       *sync.WaitGroup
 	}
 
 	displayInfoStruct struct {
@@ -147,6 +149,7 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 	go func() {
 		var table string
 		var lastDisplayLength int
+		displayQueue := make([]displayInfoStruct, 0)
 
 		for displayInfo := range displayChan {
 			if table == "" {
@@ -154,18 +157,59 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 			}
 
 			// Write a newline for new table
-			if table != displayInfo.fqTable {
-				table = displayInfo.fqTable
-				fmt.Fprintf(displayInfo.w, "\n")
-			}
+			if table == displayInfo.fqTable {
+				// Blank out previous and display new status
+				fmt.Fprintf(displayInfo.w, strings.Repeat(" ", lastDisplayLength)+"\r")
+				line := fmt.Sprintf("%s: %s", displayInfo.status, displayInfo.fqTable)
+				lastDisplayLength = len(line)
+				fmt.Fprintf(displayInfo.w, line+"\r")
 
-			// Blank out previous and display new status
-			fmt.Fprintf(displayInfo.w, strings.Repeat(" ", lastDisplayLength)+"\r")
-			line := fmt.Sprintf("%s: %s", displayInfo.status, displayInfo.fqTable)
-			lastDisplayLength = len(line)
-			fmt.Fprintf(displayInfo.w, line+"\r")
+				if displayInfo.status == "Restored" {
+					fmt.Fprintf(displayInfo.w, "\n")
+					if len(displayQueue) == 0 {
+						table = ""
+					} else {
+						workQueue := make([]displayInfoStruct, 0)
+						for i := 0; i < len(displayQueue); i++ {
+							if displayQueue[i].status == "Restored" {
+								line := fmt.Sprintf("%s: %s", displayQueue[i].status, displayQueue[i].fqTable)
+								fmt.Fprintf(displayInfo.w, line+"\n")
+							} else if displayQueue[i].fqTable != table {
+								workQueue = append(workQueue, displayQueue[i])
+							}
+						}
+
+						if len(workQueue) > 0 {
+							displayQueue = workQueue
+							table = displayQueue[0].fqTable
+						} else {
+							table = ""
+						}
+					}
+				}
+			} else {
+				// Check if the table already in queue
+				if len(displayQueue) == 0 {
+					displayQueue = append(displayQueue, displayInfo)
+				} else {
+					var tableInQueue bool
+					for i := 0; i < len(displayQueue); i++ {
+						if displayQueue[i].fqTable == displayInfo.fqTable {
+							displayQueue[i] = displayInfo
+							tableInQueue = true
+						}
+					}
+
+					if !tableInQueue {
+						displayQueue = append(displayQueue, displayInfo)
+					}
+				}
+			}
 		}
 	}()
+
+	// Apply wait group
+	var wgApply sync.WaitGroup
 
 	// Loop through all schemas and apply tables
 	for _, schema := range schemas {
@@ -183,6 +227,7 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 		if len(tables) > 0 {
 			for _, table := range tables {
 				wgDownload.Add(1)
+				wgApply.Add(1)
 				downloadInfo := downloadInfoStruct{
 					db:          db,
 					taburl:      taburl,
@@ -194,6 +239,7 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 					gid:         dbi.gid,
 					version:     version,
 					displayChan: displayChan,
+					wgApply:     &wgApply,
 				}
 
 				// Do filename encoding for schema and table if needed
@@ -210,9 +256,10 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 		}
 	}
 	wgDownload.Wait()
+	wgApply.Wait()
 
 	// Loop through all schemas again and apply triggers, views, procedures & functions
-	fmt.Println()
+	time.Sleep(1 * time.Millisecond)
 	fmt.Println()
 	objectTypes := []string{"trigger", "view", "procedure", "function"}
 	for _, schema := range schemas {
@@ -411,7 +458,7 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.triteFiles = triteFiles
 
 	// Call applyTables
-	applyTables(downloadInfo)
+	go applyTables(downloadInfo)
 }
 
 // applyTables performs all of the database actions required to restore a table
@@ -637,6 +684,8 @@ func applyTables(downloadInfo downloadInfoStruct) {
 
 	downloadInfo.displayInfo.status = "Restored"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
+
+	downloadInfo.wgApply.Done()
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
