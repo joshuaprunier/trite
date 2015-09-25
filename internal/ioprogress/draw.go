@@ -35,7 +35,8 @@ func DrawTerminalf(w io.Writer, f DrawTextFormatFunc) DrawFunc {
 
 	return func(prefix string, progress, total int64) error {
 		if progress == -1 && total == -1 {
-			fmt.Sprintf("%s%s", strings.Repeat(" ", maxLength))
+			_, err := fmt.Fprintf(w, strings.Repeat(" ", maxLength))
+			return err
 		}
 
 		// Make sure we pad it to the max length we've ever drawn so that
