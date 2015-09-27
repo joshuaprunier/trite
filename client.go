@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -52,12 +53,14 @@ type (
 )
 
 const (
+	errLogFile = "trite.err"
 	mysqlPerms = 0660
 	//minDownloadProgressSize = 5368709120 // 5GB
 	minDownloadProgressSize = 104857600 // 100MB
 )
 
 var (
+	errCount        int
 	errApplyDrop    error
 	errApplyCreate  error
 	errApplyDiscard error
@@ -67,6 +70,18 @@ var (
 	errApplyAnalyze error
 	errApplyUnlock  error
 )
+
+func getErrCount() int {
+	return errCount
+}
+
+func incErrCount() {
+	var mu sync.Mutex
+
+	mu.Lock()
+	errCount++
+	mu.Unlock()
+}
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
@@ -283,6 +298,15 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 	if importFlag != "" {
 		_, err = db.Exec("set global " + importFlag + "=0")
 	}
+
+	errCount := getErrCount()
+	if errCount > 0 {
+		fmt.Println()
+		fmt.Println("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ")
+		fmt.Println(errCount, "errors were encountered")
+		fmt.Println("Check", errLogFile, "for more details")
+		fmt.Println("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ")
+	}
 }
 
 func checkHTTP(r *http.Response, url string) {
@@ -469,7 +493,7 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.triteFiles = triteFiles
 
 	// Call applyTables
-	applyTables(&downloadInfo)
+	go applyTables(&downloadInfo)
 }
 
 // applyTables performs all of the database actions required to restore a table
@@ -610,8 +634,8 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 	downloadInfo.wgApply.Done()
 }
 
-func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, err error) {
-	switch err {
+func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr error) {
+	switch applyErr {
 	case errApplyDrop:
 		for _, triteFile := range downloadInfo.triteFiles {
 			os.Remove(triteFile)
@@ -658,6 +682,21 @@ func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, err error) {
 	case errApplyUnlock:
 		tx.Rollback()
 	}
+
+	// Log the error
+	var f *os.File
+	var err error
+	f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		checkErr(err)
+	}
+
+	l := log.New(f, "", log.LstdFlags)
+	l.Println(applyErr)
+	f.Close()
+
+	incErrCount()
 
 	downloadInfo.displayInfo.status = "ERROR"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
