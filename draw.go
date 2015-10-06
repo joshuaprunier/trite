@@ -3,34 +3,19 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
-// DrawFunc is the callback type for drawing progress.
-type DrawFunc func(string, int64, int64) error
+// drawFunc is the callback type for drawing progress.
+type drawFunc func(string, int64, int64) error
 
-// DrawTextFormatFunc is a callback used by DrawFuncs that draw text in
+// drawTextFormatFunc is a callback used by drawFuncs that draw text in
 // order to format the text into some more human friendly format.
-type DrawTextFormatFunc func(string, int64, int64) string
+type drawTextFormatFunc func(string, int64, int64) string
 
-var defaultDrawFunc DrawFunc
-
-func init() {
-	defaultDrawFunc = DrawTerminal(os.Stdout)
-}
-
-// DrawTerminal returns a DrawFunc that draws a progress bar to an io.Writer
-// that is assumed to be a terminal (and therefore respects carriage returns).
-func DrawTerminal(w io.Writer) DrawFunc {
-	return DrawTerminalf(w, func(prefix string, progress, total int64) string {
-		return fmt.Sprintf("%s: %d/%d", prefix, progress, total)
-	})
-}
-
-// DrawTerminalf returns a DrawFunc that draws a progress bar to an io.Writer
+// drawTerminalf returns a drawFunc that draws a progress bar to an io.Writer
 // that is formatted with the given formatting function.
-func DrawTerminalf(w io.Writer, f DrawTextFormatFunc) DrawFunc {
+func drawTerminalf(w io.Writer, f drawTextFormatFunc) drawFunc {
 	var maxLength int
 
 	return func(prefix string, progress, total int64) error {
@@ -55,8 +40,8 @@ func DrawTerminalf(w io.Writer, f DrawTextFormatFunc) DrawFunc {
 	}
 }
 
-// DrawTextFormatPercent is a DrawTextFormatFunc that formats the progress
+// drawTextFormatPercent is a drawTextFormatFunc that formats the progress
 // into a percentage
-func DrawTextFormatPercent(prefix string, progress, total int64) string {
+func drawTextFormatPercent(prefix string, progress, total int64) string {
 	return fmt.Sprintf("%s: %d%%", prefix, uint(float32(progress)/float32(total)*100))
 }

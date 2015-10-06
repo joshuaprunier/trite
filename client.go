@@ -504,15 +504,13 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 		var sizeDown int64
 		if extension != ".exp" && sizeServer > minDownloadProgressSize {
-			//prog := &ioprogress.Reader{
-			prog := &Reader{
-				Reader: ibdresp.Body,
-				Size:   ibdresp.ContentLength,
-				//DrawFunc:   ioprogress.DrawTerminalf(downloadInfo.displayInfo.w, ioprogress.DrawTextFormatPercent),
-				DrawFunc:   DrawTerminalf(downloadInfo.displayInfo.w, DrawTextFormatPercent),
-				DrawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
+			progressReader := &reader{
+				reader:     ibdresp.Body,
+				size:       ibdresp.ContentLength,
+				drawFunc:   drawTerminalf(downloadInfo.displayInfo.w, drawTextFormatPercent),
+				drawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
 			}
-			sizeDown, err = w.ReadFrom(prog)
+			sizeDown, err = w.ReadFrom(progressReader)
 		} else {
 			sizeDown, err = w.ReadFrom(ibdresp.Body)
 		}

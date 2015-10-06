@@ -6,39 +6,39 @@ import (
 	"time"
 )
 
-// Reader is an implementation of io.Reader that draws the progress of
+// reader is an implementation of io.reader that draws the progress of
 // reading some data.
-type Reader struct {
-	// Reader is the underlying reader to read from
-	Reader io.Reader
+type reader struct {
+	// reader is the underlying reader to read from
+	reader io.Reader
 
-	// Size is the total size of the data coming out of the reader.
-	Size int64
+	// size is the total size of the data coming out of the reader.
+	size int64
 
-	// DrawFunc is the callback to invoke to draw the progress bar. By
-	// default, this will be DrawTerminal(os.Stdout).
+	// drawFunc is the callback to invoke to draw the progress bar. By
+	// default, this will be drawTerminal(os.Stdout).
 	//
-	// DrawInterval is the minimum time to wait between reads to update the
+	// drawInterval is the minimum time to wait between reads to update the
 	// progress bar.
-	DrawFunc     DrawFunc
-	DrawInterval time.Duration
-	DrawPrefix   string
+	drawFunc     drawFunc
+	drawInterval time.Duration
+	drawPrefix   string
 
 	progress int64
 	lastDraw time.Time
 }
 
-// Read reads from the underlying reader and invokes the DrawFunc if
-// appropriate. The DrawFunc is executed when there is data that is
-// read (progress is made) and at least DrawInterval time has passed.
-func (r *Reader) Read(p []byte) (int, error) {
+// Read reads from the underlying reader and invokes the drawFunc if
+// appropriate. The drawFunc is executed when there is data that is
+// read (progress is made) and at least drawInterval time has passed.
+func (r *reader) Read(p []byte) (int, error) {
 	// If we haven't drawn before, initialize the progress bar
 	if r.lastDraw.IsZero() {
 		r.initProgress()
 	}
 
 	// Read from the underlying source
-	n, err := r.Reader.Read(p)
+	n, err := r.reader.Read(p)
 
 	// Always increment the progress even if there was an error
 	r.progress += int64(n)
@@ -59,10 +59,10 @@ func (r *Reader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (r *Reader) drawProgress() {
+func (r *reader) drawProgress() {
 	// If we've drawn before, then make sure that the draw interval
 	// has passed before we draw again.
-	interval := r.DrawInterval
+	interval := r.drawInterval
 	if interval == 0 {
 		interval = time.Second
 	}
@@ -74,24 +74,24 @@ func (r *Reader) drawProgress() {
 	}
 
 	// Draw
-	if getDisplayTable() == strings.TrimPrefix(r.DrawPrefix, "Downloading: ") {
-		f := r.drawFunc()
-		f(r.DrawPrefix, r.progress, r.Size)
+	if getDisplayTable() == strings.TrimPrefix(r.drawPrefix, "Downloading: ") {
+		f := r.drawFunction()
+		f(r.drawPrefix, r.progress, r.size)
 	}
 
 	// Record this draw so that we don't draw again really quickly
 	r.lastDraw = time.Now()
 }
 
-func (r *Reader) finishProgress() {
+func (r *reader) finishProgress() {
 	// Only output the final draw if we drawed prior
 	if !r.lastDraw.IsZero() {
-		if getDisplayTable() == strings.TrimPrefix(r.DrawPrefix, "Downloading: ") {
-			f := r.drawFunc()
-			f(r.DrawPrefix, r.progress, r.Size)
+		if getDisplayTable() == strings.TrimPrefix(r.drawPrefix, "Downloading: ") {
+			f := r.drawFunction()
+			f(r.drawPrefix, r.progress, r.size)
 
 			// Blank out the line
-			f(r.DrawPrefix, -1, -1)
+			f(r.drawPrefix, -1, -1)
 		}
 
 		// Reset lastDraw so we don't finish again
@@ -100,17 +100,13 @@ func (r *Reader) finishProgress() {
 	}
 }
 
-func (r *Reader) initProgress() {
+func (r *reader) initProgress() {
 	var zeroDraw time.Time
 	r.lastDraw = zeroDraw
 	r.drawProgress()
 	r.lastDraw = zeroDraw
 }
 
-func (r *Reader) drawFunc() DrawFunc {
-	if r.DrawFunc == nil {
-		return defaultDrawFunc
-	}
-
-	return r.DrawFunc
+func (r *reader) drawFunction() drawFunc {
+	return r.drawFunc
 }
