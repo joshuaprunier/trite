@@ -1,7 +1,8 @@
-package ioprogress
+package main
 
 import (
 	"io"
+	"strings"
 	"time"
 )
 
@@ -73,8 +74,10 @@ func (r *Reader) drawProgress() {
 	}
 
 	// Draw
-	f := r.drawFunc()
-	f(r.DrawPrefix, r.progress, r.Size)
+	if getDisplayTable() == strings.TrimPrefix(r.DrawPrefix, "Downloading: ") {
+		f := r.drawFunc()
+		f(r.DrawPrefix, r.progress, r.Size)
+	}
 
 	// Record this draw so that we don't draw again really quickly
 	r.lastDraw = time.Now()
@@ -83,11 +86,13 @@ func (r *Reader) drawProgress() {
 func (r *Reader) finishProgress() {
 	// Only output the final draw if we drawed prior
 	if !r.lastDraw.IsZero() {
-		f := r.drawFunc()
-		f(r.DrawPrefix, r.progress, r.Size)
+		if getDisplayTable() == strings.TrimPrefix(r.DrawPrefix, "Downloading: ") {
+			f := r.drawFunc()
+			f(r.DrawPrefix, r.progress, r.Size)
 
-		// Blank out the line
-		f(r.DrawPrefix, -1, -1)
+			// Blank out the line
+			f(r.DrawPrefix, -1, -1)
+		}
 
 		// Reset lastDraw so we don't finish again
 		var zeroDraw time.Time

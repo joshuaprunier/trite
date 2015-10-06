@@ -1,4 +1,4 @@
-package ioprogress
+package main
 
 import (
 	"fmt"

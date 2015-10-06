@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/joshuaprunier/mysqlUTF8"
-	"github.com/joshuaprunier/trite/internal/ioprogress"
 
 	"golang.org/x/net/html"
 )
@@ -60,6 +59,7 @@ const (
 )
 
 var (
+	displayTable    string
 	errCount        int
 	errApplyDrop    error
 	errApplyCreate  error
@@ -70,18 +70,6 @@ var (
 	errApplyAnalyze error
 	errApplyUnlock  error
 )
-
-func getErrCount() int {
-	return errCount
-}
-
-func incErrCount() {
-	var mu sync.Mutex
-
-	mu.Lock()
-	errCount++
-	mu.Unlock()
-}
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
@@ -249,6 +237,32 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 	}
 }
 
+// getErrCount returns the number of errors encountered
+func getErrCount() int {
+	return errCount
+}
+
+// incErrCount increases the error count
+func incErrCount() {
+	var mu sync.Mutex
+
+	mu.Lock()
+	errCount++
+	mu.Unlock()
+}
+
+func getDisplayTable() string {
+	return displayTable
+}
+
+func setDisplayTable(table string) {
+	var mu sync.Mutex
+
+	mu.Lock()
+	displayTable = table
+	mu.Unlock()
+}
+
 func checkHTTP(r *http.Response, url string) {
 	if r.StatusCode != 200 {
 		fmt.Println(r.StatusCode, "returned from:", url)
@@ -296,49 +310,70 @@ func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 	}
 }
 
+// display receives display events and queues events to make printing sane
 func display(displayChan chan displayInfoStruct) {
-	var table string
 	var lastDisplayLength int
+	var currentDisplay displayInfoStruct
 	displayQueue := make([]displayInfoStruct, 0)
 
+	// Receive channel display events
 	for displayInfo := range displayChan {
-		if table == "" {
-			table = displayInfo.fqTable
+		if currentDisplay.fqTable == "" {
+			currentDisplay = displayInfo
 		}
 
-		// Write a newline for new table
-		if table == displayInfo.fqTable {
-			// Blank out previous and display new status
+		// Set current display table
+		if getDisplayTable() == "" && currentDisplay.status == "Downloading" {
+			setDisplayTable(currentDisplay.fqTable)
+		}
+
+		// If the channel event is for the current table update the display otherwise add it to the queue
+		if currentDisplay.fqTable == displayInfo.fqTable {
+			// Blank out the previous status and display new status
 			fmt.Fprintf(displayInfo.w, strings.Repeat(" ", lastDisplayLength)+"\r")
 			line := fmt.Sprintf("%s: %s", displayInfo.status, displayInfo.fqTable)
 			lastDisplayLength = len(line)
 			fmt.Fprintf(displayInfo.w, line+"\r")
 
+			// Decide what to do when receiving a tables final status
 			if displayInfo.status == "Restored" || displayInfo.status == "ERROR" {
 				fmt.Fprintf(displayInfo.w, "\n")
+				// Blank current table variable if queue is empty otherwise display queued events
 				if len(displayQueue) == 0 {
-					table = ""
+					currentDisplay.fqTable = ""
 				} else {
-					workQueue := make([]displayInfoStruct, 0)
+					tmpQueue := make([]displayInfoStruct, 0)
 					for i := 0; i < len(displayQueue); i++ {
-						if displayQueue[i].status == "Restored" {
+						if displayQueue[i].status == "Restored" || displayQueue[i].status == "ERROR" {
 							line := fmt.Sprintf("%s: %s", displayQueue[i].status, displayQueue[i].fqTable)
 							fmt.Fprintf(displayInfo.w, line+"\n")
-						} else if displayQueue[i].fqTable != table {
-							workQueue = append(workQueue, displayQueue[i])
+						} else if displayQueue[i].fqTable != currentDisplay.fqTable {
+							tmpQueue = append(tmpQueue, displayQueue[i])
 						}
 					}
 
-					if len(workQueue) > 0 {
-						displayQueue = workQueue
-						table = displayQueue[0].fqTable
+					// Set current table variable to oldest queue entry or blank the current table variable if queue is empty
+					if len(tmpQueue) > 0 {
+						displayQueue = tmpQueue
+						currentDisplay = displayQueue[0]
+
+						// Set current display table
+						if currentDisplay.status == "Downloading" {
+							setDisplayTable(currentDisplay.fqTable)
+						}
+
+						// Oldest queue item is now current table so display the status
+						line := fmt.Sprintf("%s: %s", currentDisplay.status, currentDisplay.fqTable)
+						lastDisplayLength = len(line)
+						fmt.Fprintf(currentDisplay.w, line+"\r")
 					} else {
-						table = ""
+						currentDisplay.fqTable = ""
+						setDisplayTable(currentDisplay.fqTable)
 					}
 				}
 			}
 		} else {
-			// Check if the table already in queue
+			// Add the table event to the queue, update the status if the table is already in the queue
 			if len(displayQueue) == 0 {
 				displayQueue = append(displayQueue, displayInfo)
 			} else {
@@ -466,10 +501,12 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 
 		var sizeDown int64
 		if extension != ".exp" && sizeServer > minDownloadProgressSize {
-			prog := &ioprogress.Reader{
-				Reader:     ibdresp.Body,
-				Size:       ibdresp.ContentLength,
-				DrawFunc:   ioprogress.DrawTerminalf(downloadInfo.displayInfo.w, ioprogress.DrawTextFormatPercent),
+			//prog := &ioprogress.Reader{
+			prog := &Reader{
+				Reader: ibdresp.Body,
+				Size:   ibdresp.ContentLength,
+				//DrawFunc:   ioprogress.DrawTerminalf(downloadInfo.displayInfo.w, ioprogress.DrawTextFormatPercent),
+				DrawFunc:   DrawTerminalf(downloadInfo.displayInfo.w, DrawTextFormatPercent),
 				DrawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
 			}
 			sizeDown, err = w.ReadFrom(prog)
