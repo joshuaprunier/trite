@@ -251,10 +251,12 @@ func incErrCount() {
 	mu.Unlock()
 }
 
+// getDisplayTable returns the current table name being displayed
 func getDisplayTable() string {
 	return displayTable
 }
 
+// setDisplayTable sets the current table name being displayed
 func setDisplayTable(table string) {
 	var mu sync.Mutex
 
@@ -263,6 +265,7 @@ func setDisplayTable(table string) {
 	mu.Unlock()
 }
 
+// checkHTTP causes the program to exit if a http get request does not return a 200
 func checkHTTP(r *http.Response, url string) {
 	if r.StatusCode != 200 {
 		fmt.Println(r.StatusCode, "returned from:", url)
@@ -673,6 +676,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 	downloadInfo.wgApply.Done()
 }
 
+// handleApplyError deals with rollback, logging and notification of errors that may occur during the apply phase
 func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr error) {
 	switch applyErr {
 	case errApplyDrop:
