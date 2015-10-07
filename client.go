@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"text/tabwriter"
 	"time"
 
 	"github.com/joshuaprunier/mysqlUTF8"
@@ -676,6 +677,67 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 
 // handleApplyError deals with rollback, logging and notification of errors that may occur during the apply phase
 func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr error) {
+
+	// Write innodb status and processlist to error log
+	var ignore1 string
+	var ignore2 string
+	var innodbStatus string
+	err := tx.QueryRow("show engine innodb status").Scan(&ignore1, &ignore2, &innodbStatus)
+	checkErr(err)
+
+	var id string
+	var user string
+	var host string
+	var database string
+	var command string
+	var time string
+	var state string
+	var info string
+
+	rows, err := tx.Query("select id, user, host, ifnull(db,'NULL'), command, time, ifnull(state,'NULL'), ifnull(info,'NULL') from information_schema.processlist")
+	if err != nil {
+		fmt.Println("ERROR:", err)
+	}
+
+	// Log the error
+	var f *os.File
+	f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		checkErr(err)
+	}
+
+	l := log.New(f, "", log.LstdFlags)
+	l.Println(applyErr)
+	l.Println(innodbStatus)
+
+	// Print a few blank lines to separate the innodb status and processlist
+	for i := 0; i < 3; i++ {
+		l.Println()
+	}
+
+	// Tabwriter to make the processlist more readable
+	tw := new(tabwriter.Writer)
+	tw.Init(f, 0, 8, 1, ' ', tabwriter.Debug)
+	fmt.Fprintln(tw, "id\tuser\thost\tdatabase\tcommand\ttime\tstate\tinfo")
+	for rows.Next() {
+		err = rows.Scan(&id, &user, &host, &database, &command, &time, &state, &info)
+		if err != nil {
+			fmt.Println("ERROR:", err)
+		}
+
+		fmt.Fprintln(tw, id, "\t", user, "\t", host, "\t", database, "\t", command, "\t", time, "\t", state, "\t", info)
+	}
+	tw.Flush()
+
+	// Print a few blank lines to separate errors
+	for i := 0; i < 10; i++ {
+		l.Println()
+	}
+
+	f.Close()
+
+	// Handle rollback and cleanup depending on the error
 	switch applyErr {
 	case errApplyDrop:
 		for _, triteFile := range downloadInfo.triteFiles {
@@ -724,21 +786,9 @@ func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr err
 		tx.Rollback()
 	}
 
-	// Log the error
-	var f *os.File
-	var err error
-	f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-		checkErr(err)
-	}
-
-	l := log.New(f, "", log.LstdFlags)
-	l.Println(applyErr)
-	f.Close()
-
 	incErrCount()
 
+	// Send error status to display
 	downloadInfo.displayInfo.status = "ERROR"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
 	downloadInfo.wgApply.Done()
