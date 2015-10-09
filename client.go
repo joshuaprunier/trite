@@ -25,6 +25,13 @@ import (
 
 // downloadInfoStruct stores information necessary for the client to download and apply objects to the database
 type (
+	clientConfigStruct struct {
+		triteServerURL          string
+		triteServerPort         string
+		errorLogFile            string
+		minDownloadProgressSize int64
+	}
+
 	downloadInfoStruct struct {
 		db            *sql.DB
 		taburl        string
@@ -53,10 +60,7 @@ type (
 )
 
 const (
-	errLogFile = "trite.err"
 	mysqlPerms = 0660
-	//minDownloadProgressSize = 5368709120 // 5GB
-	minDownloadProgressSize = 104857600 // 100MB
 )
 
 var (
@@ -73,7 +77,7 @@ var (
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
-func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
+func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 
 	// Make a database connection
 	db, err := dbi.connect()
@@ -125,8 +129,8 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 	}
 
 	// URL variables
-	taburl := "http://" + triteURL + ":" + tritePort + "/tables/"
-	backurl := "http://" + triteURL + ":" + tritePort + "/backups/"
+	taburl := "http://" + clientConfig.triteServerURL + ":" + clientConfig.triteServerPort + "/tables/"
+	backurl := "http://" + clientConfig.triteServerURL + ":" + clientConfig.triteServerPort + "/backups/"
 
 	// Verify server urls are accessible
 	urls := []string{taburl, backurl}
@@ -154,7 +158,7 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 	dl := make(chan downloadInfoStruct)
 	go func() {
 		for d := range dl {
-			downloadTable(d)
+			downloadTable(clientConfig, d)
 			wgDownload.Done()
 		}
 	}()
@@ -233,7 +237,7 @@ func startClient(triteURL string, tritePort string, dbi *mysqlCredentials) {
 		fmt.Println()
 		fmt.Println("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ")
 		fmt.Println(errCount, "errors were encountered")
-		fmt.Println("Check", errLogFile, "for more details")
+		fmt.Println("Check", clientConfig.errorLogFile, "for more details")
 		fmt.Println("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ")
 	}
 }
@@ -398,7 +402,7 @@ func display(displayChan chan displayInfoStruct) {
 }
 
 // downloadTables retrieves files from the HTTP server. Files to download is MySQL engine specific.
-func downloadTable(downloadInfo downloadInfoStruct) {
+func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStruct) {
 	downloadInfo.displayInfo.w = os.Stdout
 	downloadInfo.displayInfo.fqTable = downloadInfo.schema + "." + downloadInfo.table
 	downloadInfo.displayInfo.status = "Downloading"
@@ -504,7 +508,7 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 		sizeServer := ibdresp.ContentLength
 
 		var sizeDown int64
-		if extension != ".exp" && sizeServer > minDownloadProgressSize {
+		if extension != ".exp" && sizeServer > clientConfig.minDownloadProgressSize*1073741824 {
 			progressReader := &reader{
 				reader:     ibdresp.Body,
 				size:       ibdresp.ContentLength,
@@ -534,11 +538,11 @@ func downloadTable(downloadInfo downloadInfoStruct) {
 	downloadInfo.triteFiles = triteFiles
 
 	// Call applyTables
-	go applyTables(&downloadInfo)
+	go applyTables(clientConfig, &downloadInfo)
 }
 
 // applyTables performs all of the database actions required to restore a table
-func applyTables(downloadInfo *downloadInfoStruct) {
+func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStruct) {
 	downloadInfo.displayInfo.status = "Applying"
 	downloadInfo.displayChan <- downloadInfo.displayInfo
 
@@ -564,7 +568,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
 			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyDrop)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyDrop)
 
 			return
 		}
@@ -573,7 +577,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec(string(stmt))
 		if err != nil {
 			errApplyCreate = fmt.Errorf("There was an error creating table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyCreate)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyCreate)
 
 			return
 		}
@@ -582,7 +586,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " discard tablespace")
 		if err != nil {
 			errApplyDiscard = fmt.Errorf("There was an error discarding the tablespace for %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyDiscard)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyDiscard)
 
 			return
 		}
@@ -591,7 +595,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("lock table " + addQuotes(downloadInfo.table) + " write")
 		if err != nil {
 			errApplyLock = fmt.Errorf("There was an error locking table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyLock)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyLock)
 
 			return
 		}
@@ -601,7 +605,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
 				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s", downloadInfo.schema, downloadInfo.table)
-				handleApplyError(tx, downloadInfo, errApplyRename)
+				handleApplyError(tx, clientConfig, downloadInfo, errApplyRename)
 
 				return
 			}
@@ -612,7 +616,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
 		if err != nil {
 			errApplyImport = fmt.Errorf("There was an error importing the tablespace for %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyImport)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyImport)
 
 			return
 		}
@@ -621,7 +625,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("analyze local table " + addQuotes(downloadInfo.table))
 		if err != nil {
 			errApplyAnalyze = fmt.Errorf("There was an error analyzing table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyAnalyze)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyAnalyze)
 
 			return
 		}
@@ -630,7 +634,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err = tx.Exec("unlock tables")
 		if err != nil {
 			errApplyUnlock = fmt.Errorf("There was an error unlocking table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyUnlock)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyUnlock)
 
 			return
 		}
@@ -644,7 +648,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 		_, err := tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
 			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s", downloadInfo.schema, downloadInfo.table)
-			handleApplyError(tx, downloadInfo, errApplyDrop)
+			handleApplyError(tx, clientConfig, downloadInfo, errApplyDrop)
 
 			return
 		}
@@ -654,7 +658,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
 				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s", downloadInfo.schema, downloadInfo.table)
-				handleApplyError(tx, downloadInfo, errApplyRename)
+				handleApplyError(tx, clientConfig, downloadInfo, errApplyRename)
 
 				return
 			}
@@ -676,7 +680,7 @@ func applyTables(downloadInfo *downloadInfoStruct) {
 }
 
 // handleApplyError deals with rollback, logging and notification of errors that may occur during the apply phase
-func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr error) {
+func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo *downloadInfoStruct, applyErr error) {
 
 	// Write innodb status and processlist to error log
 	var ignore1 string
@@ -701,9 +705,9 @@ func handleApplyError(tx *sql.Tx, downloadInfo *downloadInfoStruct, applyErr err
 
 	// Log the error
 	var f *os.File
-	f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		f, err = os.OpenFile(errLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		checkErr(err)
 	}
 

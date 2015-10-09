@@ -17,37 +17,39 @@ func showUsage() {
 
     CLIENT MODE
     ===========
-    EXAMPLE: trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_host=server1
+    EXAMPLE: trite -client -user=myuser -pass=secret -socket=/var/lib/mysql/mysql.sock -triteServer=server1
 
-    -client: Runs locally on the database you wish to copy files to and connects to an trite server
+    -client: Runs a trite client that downloads and applies database objects from a trite server
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -server_host: Server name or ip hosting the backup and dump files
-    -server_port: Port of trite server (default 12000)
+    -triteServer: Server name or ip of the trite server
+    -tritePort: Port of trite server (default 12000)
+    -errorLog: File where details of an error is written (default trite.err in current working directory)
+    -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
 
     DUMP MODE
     =========
-    EXAMPLE: trite -dump -user=myuser -password=secret -port=3306 -host=prod-db1 -dump_dir=/tmp
+    EXAMPLE: trite -dump -user=myuser -pass=secret -port=3306 -host=prod-db1 -dumpDir=/tmp
 
     -dump: Dumps create statements for tables & objects (prodecures, functions, triggers, views) from a local or remote MySQL database
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -dump_dir: Directory to where dump files will be written (default current working directory)
+    -dumpDir: Directory where dump files will be written (default current working directory)
 
     SERVER MODE
     ===========
-    EXAMPLE: trite -server -dump_path=/tmp/trite_dump20130824_173000 -backup_path=/tmp/xtrabackup_location
+    EXAMPLE: trite -server -dumpPath=/tmp/trite_dump20130824_173000 -backupPath=/tmp/xtrabackup_location
 
-    -server: Runs an HTTP server serving the backup and database object dump files
-    -dump_path: Path to dump files
-    -backup_path: Path to XtraBackup files
-    -server_port: Port of trite server (default 12000)
+    -server: Runs a HTTP server allowing a trite client to download xtrabackup and database object dump files
+    -dumpPath: Path to create statement dump files
+    -backupPath: Path to xtraBackup files
+    -tritePort: Port of trite server (default 12000)
   `)
 }
 
@@ -67,25 +69,27 @@ func main() {
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 
 	// MySQL flags
-	flagDbUser := flag.String("user", "", "MySQL: User")
-	flagDbPass := flag.String("password", "", "MySQL: Password")
-	flagDbHost := flag.String("host", "", "MySQL: Host")
-	flagDbPort := flag.String("port", "3306", "MySQL: Port")
-	flagDbSock := flag.String("socket", "", "MySQL: Socket")
+	flagDbUser := flag.String("user", "", "MySQL username")
+	flagDbPass := flag.String("pass", "", "MySQL password")
+	flagDbHost := flag.String("host", "", "MySQL host")
+	flagDbPort := flag.String("port", "3306", "MySQL port")
+	flagDbSock := flag.String("socket", "", "MySQL socket")
 
 	// Client flags
-	flagClient := flag.Bool("client", false, "Run in client mode")
-	flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
+	flagClient := flag.Bool("client", false, "Run client")
+	flagTriteServer := flag.String("triteServer", "", "Hostname of the trite server")
+	flagErrorLog := flag.String("errorLog", wd+"/trite.err", "Error log file path")
+	flagProgressLimit := flag.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
 
 	// Dump flags
-	flagDump := flag.Bool("dump", false, "Run in dump mode")
-	flagDumpDir := flag.String("dump_dir", wd, "DUMP: Directory for output")
+	flagDump := flag.Bool("dump", false, "Run dump")
+	flagDumpDir := flag.String("dumpDir", wd, "Directory for output")
 
 	// Server flags
-	flagServer := flag.Bool("server", false, "Run in server mode")
-	flagTablePath := flag.String("dump_path", "", "SERVER: Path to create table files")
-	flagBackupPath := flag.String("backup_path", "", "SERVER: Path to database backup files")
-	flagPort := flag.String("server_port", "12000", "CLIENT/SERVER: HTTP port number") // also used by client
+	flagServer := flag.Bool("server", false, "Run server")
+	flagDumpPath := flag.String("dumpPath", "", "Path to create statement dump files")
+	flagBackupPath := flag.String("backupPath", "", "Path to database backup files")
+	flagTritePort := flag.String("tritePort", "12000", "Trite server port number")
 
 	// Intercept -help and show usage screen
 	flagHelp := flag.Bool("help", false, "Command Usage")
@@ -109,7 +113,7 @@ func main() {
 
 	// Detect what functionality is being requested
 	if *flagClient {
-		if *flagServerHost == "" || *flagDbUser == "" {
+		if *flagTriteServer == "" || *flagDbUser == "" {
 			showUsage()
 		} else {
 			// Confirm mysql user exists
@@ -123,7 +127,9 @@ func main() {
 			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
 			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			startClient(*flagServerHost, *flagPort, &dbi)
+			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
+
+			startClient(cliConfig, &dbi)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {
@@ -132,10 +138,10 @@ func main() {
 			startDump(*flagDumpDir, &dbi)
 		}
 	} else if *flagServer {
-		if *flagTablePath == "" || *flagBackupPath == "" {
+		if *flagDumpPath == "" || *flagBackupPath == "" {
 			showUsage()
 		} else {
-			startServer(*flagTablePath, *flagBackupPath, *flagPort)
+			startServer(*flagDumpPath, *flagBackupPath, *flagTritePort)
 		}
 	} else if *flagHelp {
 		showUsage()
