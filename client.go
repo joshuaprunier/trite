@@ -78,7 +78,6 @@ var (
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
 func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
-
 	// Make a database connection
 	db, err := dbi.connect()
 	defer db.Close()

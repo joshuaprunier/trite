@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/user"
 	"runtime/pprof"
@@ -64,37 +65,46 @@ func main() {
 	wd, err := os.Getwd()
 	checkErr(err)
 
+	f := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+
 	// Profiling flags
-	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
+	var cpuprofile = f.String("cpuprofile", "", "write cpu profile to file")
+	var memprofile = f.String("memprofile", "", "write memory profile to this file")
 
 	// MySQL flags
-	flagDbUser := flag.String("user", "", "MySQL username")
-	flagDbPass := flag.String("pass", "", "MySQL password")
-	flagDbHost := flag.String("host", "", "MySQL host")
-	flagDbPort := flag.String("port", "3306", "MySQL port")
-	flagDbSock := flag.String("socket", "", "MySQL socket")
+	flagDbUser := f.String("user", "", "MySQL username")
+	flagDbPass := f.String("pass", "", "MySQL password")
+	flagDbHost := f.String("host", "", "MySQL host")
+	flagDbPort := f.String("port", "3306", "MySQL port")
+	flagDbSock := f.String("socket", "", "MySQL socket")
 
 	// Client flags
-	flagClient := flag.Bool("client", false, "Run client")
-	flagTriteServer := flag.String("triteServer", "", "Hostname of the trite server")
-	flagErrorLog := flag.String("errorLog", wd+"/trite.err", "Error log file path")
-	flagProgressLimit := flag.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
+	flagClient := f.Bool("client", false, "Run client")
+	flagTriteServer := f.String("triteServer", "", "Hostname of the trite server")
+	flagErrorLog := f.String("errorLog", wd+"/trite.err", "Error log file path")
+	flagProgressLimit := f.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
 
 	// Dump flags
-	flagDump := flag.Bool("dump", false, "Run dump")
-	flagDumpDir := flag.String("dumpDir", wd, "Directory for output")
+	flagDump := f.Bool("dump", false, "Run dump")
+	flagDumpDir := f.String("dumpDir", wd, "Directory for output")
 
 	// Server flags
-	flagServer := flag.Bool("server", false, "Run server")
-	flagDumpPath := flag.String("dumpPath", "", "Path to create statement dump files")
-	flagBackupPath := flag.String("backupPath", "", "Path to database backup files")
-	flagTritePort := flag.String("tritePort", "12000", "Trite server port number")
+	flagServer := f.Bool("server", false, "Run server")
+	flagDumpPath := f.String("dumpPath", "", "Path to create statement dump files")
+	flagBackupPath := f.String("backupPath", "", "Path to database backup files")
+	flagTritePort := f.String("tritePort", "12000", "Trite server port number")
 
 	// Intercept -help and show usage screen
-	flagHelp := flag.Bool("help", false, "Command Usage")
+	flagHelp := f.Bool("help", false, "Command Usage")
 
-	flag.Parse()
+	f.SetOutput(ioutil.Discard)
+
+	err = f.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Println(err)
+		showUsage()
+		os.Exit(0)
+	}
 
 	// CPU Profiling
 	if *cpuprofile != "" {
