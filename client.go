@@ -312,8 +312,6 @@ func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 		stmt, _ := ioutil.ReadAll(resp.Body)
 		_, err = db.Exec(string(stmt))
 		checkErr(err)
-
-		fmt.Println("	Created schema", schema)
 	}
 }
 
