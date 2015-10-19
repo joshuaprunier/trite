@@ -3,19 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
-	"os/signal"
 	"os/user"
 	"runtime/pprof"
 	"strconv"
-	"syscall"
 	"time"
-	"unsafe"
-
-	"github.com/joshuaprunier/trite/client"
-	"github.com/joshuaprunier/trite/common"
-	"github.com/joshuaprunier/trite/dump"
-	"github.com/joshuaprunier/trite/server"
 )
 
 // ShowUsage prints a help screen which details all three modes command line flags
@@ -25,38 +18,39 @@ func showUsage() {
 
     CLIENT MODE
     ===========
-    EXAMPLE: trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_host=server1 -workers=3
+    EXAMPLE: trite -client -user=myuser -pass=secret -socket=/var/lib/mysql/mysql.sock -triteServer=server1
 
-    -client: Runs locally on the database you wish to copy files to and connects to an trite server
+    -client: Runs a trite client that downloads and applies database objects from a trite server
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -server_host: Server name or ip hosting the backup and dump files
-    -server_port: Port of trite server (default 12000)
-    -workers: Number of copy threads (default 1)
+    -triteServer: Server name or ip of the trite server
+    -tritePort: Port of trite server (default 12000)
+    -errorLog: File where details of an error is written (default trite.err in current working directory)
+    -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
 
     DUMP MODE
     =========
-    EXAMPLE: trite -dump -user=myuser -password=secret -port=3306 -host=prod-db1 -dump_dir=/tmp
+    EXAMPLE: trite -dump -user=myuser -pass=secret -port=3306 -host=prod-db1 -dumpDir=/tmp
 
     -dump: Dumps create statements for tables & objects (prodecures, functions, triggers, views) from a local or remote MySQL database
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -dump_dir: Directory to where dump files will be written (default current working directory)
+    -dumpDir: Directory where dump files will be written (default current working directory)
 
     SERVER MODE
     ===========
-    EXAMPLE: trite -server -dump_path=/tmp/trite_dump20130824_173000 -backup_path=/tmp/xtrabackup_location
+    EXAMPLE: trite -server -dumpPath=/tmp/trite_dump20130824_173000 -backupPath=/tmp/xtrabackup_location
 
-    -server: Runs an HTTP server serving the backup and database object dump files
-    -dump_path: Path to dump files
-    -backup_path: Path to XtraBackup files
-    -server_port: Port of trite server (default 12000)
+    -server: Runs a HTTP server allowing a trite client to download xtrabackup and database object dump files
+    -dumpPath: Path to create statement dump files
+    -backupPath: Path to xtraBackup files
+    -tritePort: Port of trite server (default 12000)
   `)
 }
 
@@ -64,68 +58,58 @@ func showUsage() {
 func main() {
 	start := time.Now()
 
-	// Trap for SIGINT, may need to trap other signals in the future as well
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-
-	var oldState syscall.Termios
-	syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-
-	var timer time.Time
-	go func() {
-		for sig := range sigChan {
-			if time.Now().Sub(timer) < time.Second*5 {
-				syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-				os.Exit(0)
-			}
-
-			fmt.Println()
-			fmt.Println(sig, "signal caught!")
-			fmt.Println("Send signal again within 3 seconds to exit")
-
-			timer = time.Now()
-		}
-	}()
+	// Catch signals
+	catchNotifications()
 
 	// Get working directory
 	wd, err := os.Getwd()
-	common.CheckErr(err)
+	checkErr(err)
+
+	f := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 
 	// Profiling flags
-	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
+	var cpuprofile = f.String("cpuprofile", "", "write cpu profile to file")
+	var memprofile = f.String("memprofile", "", "write memory profile to this file")
 
 	// MySQL flags
-	flagDbUser := flag.String("user", "", "MySQL: User")
-	flagDbPass := flag.String("password", "", "MySQL: Password")
-	flagDbHost := flag.String("host", "", "MySQL: Host")
-	flagDbPort := flag.String("port", "3306", "MySQL: Port")
-	flagDbSock := flag.String("socket", "", "MySQL: Socket")
+	flagDbUser := f.String("user", "", "MySQL username")
+	flagDbPass := f.String("pass", "", "MySQL password")
+	flagDbHost := f.String("host", "", "MySQL host")
+	flagDbPort := f.String("port", "3306", "MySQL port")
+	flagDbSock := f.String("socket", "", "MySQL socket")
 
 	// Client flags
-	flagClient := flag.Bool("client", false, "Run in client mode")
-	flagServerHost := flag.String("server_host", "", "CLIENT: Server URL")
-	flagWorkers := flag.Uint("workers", 1, "Number of concurrent worker threads for downloading & table importing")
+	flagClient := f.Bool("client", false, "Run client")
+	flagTriteServer := f.String("triteServer", "", "Hostname of the trite server")
+	flagErrorLog := f.String("errorLog", wd+"/trite.err", "Error log file path")
+	flagProgressLimit := f.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
 
 	// Dump flags
-	flagDump := flag.Bool("dump", false, "Run in dump mode")
-	flagDumpDir := flag.String("dump_dir", wd, "DUMP: Directory for output")
+	flagDump := f.Bool("dump", false, "Run dump")
+	flagDumpDir := f.String("dumpDir", wd, "Directory for output")
 
 	// Server flags
-	flagServer := flag.Bool("server", false, "Run in server mode")
-	flagTablePath := flag.String("dump_path", "", "SERVER: Path to create table files")
-	flagBackupPath := flag.String("backup_path", "", "SERVER: Path to database backup files")
-	flagPort := flag.String("server_port", "12000", "CLIENT/SERVER: HTTP port number") // also used by client
+	flagServer := f.Bool("server", false, "Run server")
+	flagDumpPath := f.String("dumpPath", "", "Path to create statement dump files")
+	flagBackupPath := f.String("backupPath", "", "Path to database backup files")
+	flagTritePort := f.String("tritePort", "12000", "Trite server port number")
 
 	// Intercept -help and show usage screen
-	flagHelp := flag.Bool("help", false, "Command Usage")
+	flagHelp := f.Bool("help", false, "Command Usage")
 
-	flag.Parse()
+	f.SetOutput(ioutil.Discard)
+
+	err = f.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Println(err)
+		showUsage()
+		os.Exit(0)
+	}
 
 	// CPU Profiling
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
-		common.CheckErr(err)
+		checkErr(err)
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
@@ -135,38 +119,39 @@ func main() {
 		*flagDbHost = "localhost"
 	}
 
-	// Populate dbInfo struct
-	dbInfo := common.DbInfoStruct{User: *flagDbUser, Pass: *flagDbPass, Host: *flagDbHost, Port: *flagDbPort, Sock: *flagDbSock}
+	dbi := mysqlCredentials{user: *flagDbUser, pass: *flagDbPass, host: *flagDbHost, port: *flagDbPort, sock: *flagDbSock}
 
 	// Detect what functionality is being requested
 	if *flagClient {
-		if *flagServerHost == "" || *flagDbUser == "" {
+		if *flagTriteServer == "" || *flagDbUser == "" {
 			showUsage()
 		} else {
 			// Confirm mysql user exists
 			mysqlUser, err := user.Lookup("mysql")
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 
 			// Get mysql uid & gid
-			dbInfo.UID, _ = strconv.Atoi(mysqlUser.Uid)
-			dbInfo.GID, _ = strconv.Atoi(mysqlUser.Gid)
+			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
+			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			client.RunClient(*flagServerHost, *flagPort, *flagWorkers, &dbInfo)
+			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
+
+			startClient(cliConfig, &dbi)
 		}
 	} else if *flagDump {
 		if *flagDbUser == "" {
 			showUsage()
 		} else {
-			dump.RunDump(*flagDumpDir, &dbInfo)
+			startDump(*flagDumpDir, &dbi)
 		}
 	} else if *flagServer {
-		if *flagTablePath == "" || *flagBackupPath == "" {
+		if *flagDumpPath == "" || *flagBackupPath == "" {
 			showUsage()
 		} else {
-			server.RunServer(*flagTablePath, *flagBackupPath, *flagPort)
+			startServer(*flagDumpPath, *flagBackupPath, *flagTritePort)
 		}
 	} else if *flagHelp {
 		showUsage()
@@ -179,7 +164,7 @@ func main() {
 	// Memory Profiling
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
-		common.CheckErr(err)
+		checkErr(err)
 		pprof.WriteHeapProfile(f)
 		defer f.Close()
 	}
