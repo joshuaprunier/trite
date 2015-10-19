@@ -1,20 +1,18 @@
 Trite
 =====
 
-Trite is a client/server written in 100% Go that provides customizable transportation of binary InnoDB table files from XtraBackups. Trite stands for <b>TR</b>ansport <b>I</b>nnodb <b>T</b>ables <b>E</b>fficiently and is a nod to the repetitive manual steps that must be done to copy .ibd files to remote MySQL databases. Trite automates that manual process. Copying binary files is much quicker than traditional mysqldump restores when a tables size becomes very large. It also allows partial database restores not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.  
+Trite is a client/server written in 100% Go that automates database restoration from XtraBackup files. Trite stands for <b>TR</b>ansport <b>I</b>nnodb <b>T</b>ables <b>E</b>fficiently and is a nod to the repetitive manual steps that must be done to use MySQL's [transportable tablespace] (http://dev.mysql.com/doc/en/tablespace-copying.html) feature. Copying binary files is much quicker than restoring with mysqldump when a table size on disk is very large. Trite allows partial database restoration not normally possible due to the design of InnoDB file per tablespaces and their relationship with the shared tablespace.
 
-Trite is a good fit if time is a factor and you need to do the following:  
-* Copy very large InnoDB tables between databases
-* Recover a subset of tables
-* Refresh a single database from different source databases
+Typical use cases:  
+* Restore a very large database that is all or mostly InnoDB tables quickly
 * Clone a database to shrink the ibdata file size
-
-The [limitations](https://github.com/joshuaprunier/trite/edit/master/README.md#limitations-caveats) are rather extensive so be sure to read them before deciding if trite will work in your environment.
+* Perform a partial database restore
+* Refresh a single database from different source databases
 
 
 Dependencies
 ------------
-[Go 1.0](http://golang.org/doc/install) or greater  
+[Go](http://golang.org/doc/install)  
 [Git](http://git-scm.com/downloads) required for `go get`
 
 Not required to compile the code but you won't be able to do much without:  
@@ -27,98 +25,75 @@ Installation
 $ go get github.com/joshuaprunier/trite
 ```
 
-The trite binary can be found at: $GOPATH/bin/trite
+The compiled trite binary can be found at: $GOPATH/bin/trite
+
+### Client Mode
+Client mode restores database tables and code objects from a trite server. It must be run on the same server as the MySQL instance you are copying to and under a user that can write to the MySQL data directory.
+
+### Dump Mode
+Dump mode makes file copies of create statements for database tables and objects (procedures, functions, triggers, views). This is used in combination with an XtraBackup snapshot of a database when trite is run in server mode. A structure dump should be taken as close to the time a backup is done as possible to prevent backup/dump differences which may cause restoration errors. A subdirectory with a date/time stamp is created for dump files. Deletion or editing of objects in the dump directory can be done to customize what is restored in a database when a trite client is run. The MySQL server target can be local or remote in dump mode.
+
+### Server Mode
+Server mode starts an HTTP server that the trite client connects to download structure dump and xtrabackup files. Multiple trite servers can be run on the same server by specifying different ports and possibly different xtrabackup & structure dump locations. This is useful when restoring a master and slaves that have a subset of the master data.
+
 
 Usage
 -----
-Trite is run in one of three modes: client, dump or server  
+Trite has three modes of operation: client, dump or server  
 
 ```
   Usage of trite:
 
     CLIENT MODE
     ===========
-    EXAMPLE: trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_host=server1 -workers=3
+    EXAMPLE: trite -client -user=myuser -pass=secret -socket=/var/lib/mysql/mysql.sock -triteServer=server1
 
-    -client: Runs locally on the database you wish to copy files to and connects to an trite server
+    -client: Runs a trite client that downloads and applies database objects from a trite server
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -server_host: Server name or ip hosting the backup and dump files
-    -server_port: Port of trite server (default 12000)
-    -workers: Number of copy threads (default 1)
+    -triteServer: Server name or ip of the trite server
+    -tritePort: Port of trite server (default 12000)
+    -errorLog: File where details of an error is written (default trite.err in current working directory)
+    -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
 
     DUMP MODE
     =========
-    EXAMPLE: trite -dump -user=myuser -password=secret -port=3306 -host=prod-db1 -dump_dir=/tmp
+    EXAMPLE: trite -dump -user=myuser -pass=secret -port=3306 -host=prod-db1 -dumpDir=/tmp
 
     -dump: Dumps create statements for tables & objects (prodecures, functions, triggers, views) from a local or remote MySQL database
     -user: MySQL user name
-    -password: MySQL password (If omitted the user is prompted)
+    -pass: MySQL password (If omitted the user is prompted)
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
-    -dump_dir: Directory to where dump files will be written (default current working directory)
+    -dumpDir: Directory where dump files will be written (default current working directory)
 
     SERVER MODE
     ===========
-    EXAMPLE: trite -server -dump_path=/tmp/trite_dump20130824_173000 -backup_path=/tmp/xtrabackup_location
+    EXAMPLE: trite -server -dumpPath=/tmp/trite_dump20130824_173000 -backupPath=/tmp/xtrabackup_location
 
-    -server: Runs an HTTP server serving the backup and database object dump files
-    -dump_path: Path to dump files
-    -backup_path: Path to XtraBackup files
-    -server_port: Port of trite server (default 12000)
+    -server: Runs a HTTP server allowing a trite client to download xtrabackup and database object dump files
+    -dumpPath: Path to create statement dump files
+    -backupPath: Path to xtraBackup files
+    -tritePort: Port of trite server (default 12000)
 ```
-
-### Client Mode
-Client mode copies database tables and code objects from a trite server. It must be run on the same server as the MySQL instance you are copying to and under a user that can write to the MySQL data directory.
-
-	trite -client -user=myuser -password=secret -socket=/var/lib/mysql/mysql.sock -server_url=http://trite-server -workers=5
-* <b>-user</b> MySQL user name.
-* <b>-password</b> Password for the MySQL user. (If omitted the user is prompted)
-* <b>-host</b> Host name or ip address of the MySQL server. (If socket and host are blank localhost is assumed)
-* <b>-socket</b> Socket file of the MySQL server.
-* <b>-port</b> Port of MySQL server. (default 3306)
-* <b>-server_host</b> Server name or ip of the trite server hosting the backup and dump files.
-* <b>-server_port</b> Port of the trite server. (default 12000)
-* <b>-workers</b> Number of worker threads that will download and import tables concurrently. The number of worker threads will depend primarily on the i/o capacity of the MySQL server hardware and the speed of your network connection. (default 1)
-
-### Dump Mode
-Dump mode makes file copies of create statements for database tables and objects (procedures, functions, triggers, views). This is used in combination with an XtraBackup snapshot of a database when trite is run in server mode. A structure dump should be taken as close to the time a backup is done as possible to prevent backup/dump differences which may cause restoration errors. A subdirectory with a date/time stamp is created for dump files. Deletion or editing of objects in the dump directory can be done to customize what is restored in a database when a trite client is run. The MySQL server target can be local or remote in dump mode.
-
-	trite -dump -user=myuser -password=secret -port=3306 -host=prod-db1 -dump_dir=/tmp
-* <b>-user</b> MySQL user name.
-* <b>-password</b> Password for the MySQL user. (If omitted the user is prompted)
-* <b>-host</b> Host name or ip address of the MySQL server. (If socket and host are blank localhost is assumed)
-* <b>-socket</b> Socket file of the MySQL server.
-* <b>-port</b> Port of MySQL server. (default 3306)
-* <b>-dump_dir</b> Directory to dump create statements for database tables and objects. (default is current working directory)
-
-### Server Mode
-Server mode starts an HTTP server that the trite client connects to. It is run by supplying the -dump_path and -backup_path flags. Multiple trite servers can be run simultaneously with different -dump_path, -backup_path and -server_port configurations . This is useful when restoring a master and slave that has a subset of the master data.
-
-	trite -server -dump_path=/tmp/trite_dump20130824_173000 -backup_path=/tmp/xtrabackup_location
-* <b>-dump_path</b> Path to a database structure dump created by running trite in -dump mode. (default is current working directory)
-* <b>-backup_path</b> Path to an XtraBackup where --export & --apply-log has been run. When server mode is started it will check the backups and ensure tables have properly been prepared for export, otherwise it exits with an error.
-* <b>-server_port</b> Port the HTTP server will listen on. (default 12000)
 
 
 Limitations & Caveats
 ------------------------------
 * Trite's speed is largely dependent on network transfer speed from the server to the client and the i/o speed of the database destination. A small amount of CPU is consumed when restoring compressed InnoDB tables.
-* innodb_file_per_table must be enabled on both the database backed up from and restored to.
+* innodb_file_per_table must be enabled on both the xtrabackup source database and the destination.
 * The import process bypasses MySQL replication so care must be given when restoring a database master or slave.
 * The destination database must be running Percona server 5.1, 5.5, 5.6 or Oracle MySQL 5.6 or MariaDB 5.5, 10.
-* The --export & --apply-log options must be run on the database backup taken with Percona XtraBackup. This is checked when a trite server is started otherwise it will exit with an error.
-* Currently only InnoDB & MyISAM engines are supported by trite. Additional engines should be easy to add provided they are supported by XtraBackup.
-* Only basic latin letters in schema and table names is supported. However, [unicode character support] (https://github.com/joshuaprunier/trite/issues/12) is planned.
+* The --export & --apply-log options must be run on the database backup taken with Percona XtraBackup. Running trite in server mode will throw an error and exit if this has not been done.
+* Currently only InnoDB & MyISAM storage engines are supported by trite. Additional engines should be easy to add provided they are supported by XtraBackup.
 * The mysql, information_schema and performance_schema are ignored in dump mode.
 * The import process is very verbose and will pollute the MySQL error log with information for every table imported. Unfortunately there is no way to prevent this.
-* Import of compressed InnoDB tables is noted as "EXPERIMENTAL" but has worked just fine in my testing. Please let me know if you experience otherwise.
-* Table download failure is currently detected, cleaned up and the code terminates. This does not happen under typical use but I plan to add retry code eventually.
-* It is currently up to the human customizing the restore to handle table relationships with regards to foreign key relationships. Fk constraints are ignored during the copy process.
+* Import of compressed InnoDB tables is noted as "EXPERIMENTAL" but has worked just fine in my testing except for being rather slow.
+* Care should be taken customizing a restore. Problems may occur removing a table but not a trigger on it or not restoring a table referenced by another tables foreign key.
 
 To Do
 -----
