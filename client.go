@@ -697,7 +697,7 @@ func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo 
 	var state string
 	var info string
 
-	rows, err := tx.Query("select id, user, host, ifnull(db,'NULL'), command, time, ifnull(state,'NULL'), ifnull(info,'NULL') from information_schema.processlist")
+	rows, err := tx.Query("select id, user, host, ifnull(db,'NULL'), command, time, ifnull(state,'NULL'), ifnull(info,'NULL') from information_schema.processlist where id != connection_id()")
 	if err != nil {
 		fmt.Println("ERROR:", err)
 	}
