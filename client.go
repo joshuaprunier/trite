@@ -83,6 +83,12 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 	db, err := dbi.connect()
 	defer db.Close()
 
+	// Problem connecting to database
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	// Check MySQL max_connections and set db driver accordingly
 	var ignore string
 	var maxConnections int
