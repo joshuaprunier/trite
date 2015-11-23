@@ -56,6 +56,7 @@ Trite has three modes of operation: client, dump or server
     -port: MySQL server port (default 3306)
     -triteServer: Server name or ip of the trite server
     -tritePort: Port of trite server (default 12000)
+    -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
     -errorLog: File where details of an error is written (default trite.err in current working directory)
     -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
 
