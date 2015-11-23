@@ -28,6 +28,7 @@ type (
 	clientConfigStruct struct {
 		triteServerURL          string
 		triteServerPort         string
+		triteMaxConnections     int
 		errorLogFile            string
 		minDownloadProgressSize int64
 	}
@@ -82,7 +83,20 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 	db, err := dbi.connect()
 	defer db.Close()
 
-	// Turn off idle connections
+	// Check MySQL max_connections and set db driver accordingly
+	var ignore string
+	var maxConnections int
+	err = db.QueryRow("show global variables like 'max_connections'").Scan(&ignore, &maxConnections)
+	checkErr(err)
+
+	if maxConnections > clientConfig.triteMaxConnections {
+		db.SetMaxOpenConns(clientConfig.triteMaxConnections)
+	} else {
+		fmt.Fprintln(os.Stderr, "MySQL max connections is lower than", clientConfig.triteMaxConnections)
+		fmt.Fprintln(os.Stderr, "Increase MySQL's max_connections variable or decrease triteMaxConnections")
+		os.Exit(1)
+	}
+
 	db.SetMaxIdleConns(0)
 
 	// Problem connecting to database
@@ -92,7 +106,6 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 	}
 
 	// Detect MySQL version and set import flag for 5.1 & 5.5
-	var ignore string
 	var version string
 	err = db.QueryRow("show global variables like 'version'").Scan(&ignore, &version)
 	checkErr(err)

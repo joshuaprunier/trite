@@ -28,6 +28,7 @@ func showUsage() {
     -port: MySQL server port (default 3306)
     -triteServer: Server name or ip of the trite server
     -tritePort: Port of trite server (default 12000)
+    -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
     -errorLog: File where details of an error is written (default trite.err in current working directory)
     -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
 
@@ -81,6 +82,7 @@ func main() {
 	// Client flags
 	flagClient := f.Bool("client", false, "Run client")
 	flagTriteServer := f.String("triteServer", "", "Hostname of the trite server")
+	flagTriteMaxConnections := f.Int("triteMaxConnections", 20, "Max concurrent trite db connections")
 	flagErrorLog := f.String("errorLog", wd+"/trite.err", "Error log file path")
 	flagProgressLimit := f.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
 
@@ -137,7 +139,7 @@ func main() {
 			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
 			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 
-			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
+			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, triteMaxConnections: *flagTriteMaxConnections, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
 
 			startClient(cliConfig, &dbi)
 		}
