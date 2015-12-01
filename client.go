@@ -65,16 +65,19 @@ const (
 )
 
 var (
-	displayTable    string
-	errCount        int
-	errApplyDrop    error
-	errApplyCreate  error
-	errApplyDiscard error
-	errApplyLock    error
-	errApplyRename  error
-	errApplyImport  error
-	errApplyAnalyze error
-	errApplyUnlock  error
+	displayTable           string
+	errCount               int
+	errDownloadUnsupported error
+	errDownloadExp         error
+	errApplyDrop           error
+	errDownloadSize        error
+	errApplyCreate         error
+	errApplyDiscard        error
+	errApplyLock           error
+	errApplyRename         error
+	errApplyImport         error
+	errApplyAnalyze        error
+	errApplyUnlock         error
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
@@ -466,12 +469,8 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 			extensions = append(extensions, ".MYD")
 			extensions = append(extensions, ".frm")
 		} else {
-			fmt.Println()
-			fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-			fmt.Println("The .ibd or .MYD file is missing for table", downloadInfo.table)
-			fmt.Println("Skipping ...")
-			fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-			fmt.Println()
+			errDownloadUnsupported = fmt.Errorf("Table %s.%s is using an unsupported engine", downloadInfo.schema, downloadInfo.table)
+			handleDownloadError(clientConfig, &downloadInfo, errDownloadUnsupported)
 
 			return
 		}
@@ -495,12 +494,8 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 			checkErr(err)
 
 			if resp.StatusCode != 200 {
-				fmt.Println()
-				fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-				fmt.Println("The .exp file is missing for table", downloadInfo.table)
-				fmt.Println("Skipping ...")
-				fmt.Println("!!!!!!!!!!!!!!!!!!!!")
-				fmt.Println()
+				errDownloadExp = fmt.Errorf("The .exp file is missing for table %s.%s", downloadInfo.schema, downloadInfo.table)
+				handleDownloadError(clientConfig, &downloadInfo, errDownloadExp)
 
 				return
 			}
@@ -540,12 +535,14 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 
 		// Check if size of file downloaded matches size on server -- Add retry ability
 		if sizeDown != sizeServer {
+			// Remove partial file download
+			os.Remove(triteFile)
+
+			errDownloadSize = fmt.Errorf("The %s file did not download properly for %s.%s", extension, downloadInfo.schema, downloadInfo.table)
+			handleDownloadError(clientConfig, &downloadInfo, errDownloadSize)
+
 			fmt.Println("\n\nFile download size does not match size on server!")
 			fmt.Println(triteFile, "has been removed.")
-
-			// Remove partial file download
-			err = os.Remove(triteFile)
-			checkErr(err)
 		}
 
 		triteFiles = append(triteFiles, triteFile)
@@ -555,6 +552,29 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 
 	// Call applyTables
 	go applyTables(clientConfig, &downloadInfo)
+}
+
+// handleDownloadError deals with logging and notification of errors that may occur during the download phase
+func handleDownloadError(clientConfig clientConfigStruct, downloadInfo *downloadInfoStruct, applyErr error) {
+	// Log the error
+	var f *os.File
+	var err error
+	f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		checkErr(err)
+	}
+
+	l := log.New(f, "DOWNLOAD ERROR\t", log.LstdFlags)
+	l.Println(applyErr)
+	f.Close()
+
+	incErrCount()
+
+	// Send error status to display
+	downloadInfo.displayInfo.status = "ERROR"
+	downloadInfo.displayChan <- downloadInfo.displayInfo
+	downloadInfo.wgApply.Done()
 }
 
 // applyTables performs all of the database actions required to restore a table
@@ -727,7 +747,7 @@ func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo 
 		checkErr(err)
 	}
 
-	l := log.New(f, "", log.LstdFlags)
+	l := log.New(f, "APPLY ERROR\t", log.LstdFlags)
 	l.Println(applyErr)
 	l.Println(innodbStatus)
 
