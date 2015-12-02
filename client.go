@@ -78,6 +78,7 @@ var (
 	errApplyImport         error
 	errApplyAnalyze        error
 	errApplyUnlock         error
+	errObjectApply         error
 )
 
 // startClient is responsible for retrieving database creation satements and binary table files from a trite server instance.
@@ -244,7 +245,7 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 	objectTypes := []string{"trigger", "view", "procedure", "function"}
 	for _, schema := range schemas {
 		for _, objectType := range objectTypes {
-			applyObjects(db, objectType, schema, taburl)
+			applyObjects(db, clientConfig, objectType, schema, taburl)
 		}
 	}
 
@@ -255,6 +256,17 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 
 	errCount := getErrCount()
 	if errCount > 0 {
+		// Add spacing to error log to make multiple runs easier to read
+		f, err := os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+		checkErr(err)
+
+		l := log.New(f, "", log.LstdFlags)
+		for i := 0; i < 10; i++ {
+			l.Println()
+		}
+		f.Close()
+
+		// Print to stdout an alert that errors ere encountered during processing
 		fmt.Println()
 		fmt.Println("! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ")
 		fmt.Println(errCount, "errors were encountered")
@@ -540,9 +552,6 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 
 			errDownloadSize = fmt.Errorf("The %s file did not download properly for %s.%s", extension, downloadInfo.schema, downloadInfo.table)
 			handleDownloadError(clientConfig, &downloadInfo, errDownloadSize)
-
-			fmt.Println("\n\nFile download size does not match size on server!")
-			fmt.Println(triteFile, "has been removed.")
 		}
 
 		triteFiles = append(triteFiles, triteFile)
@@ -603,7 +612,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Drop table if exists
 		_, err = tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
-			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyDrop)
 
 			return
@@ -612,7 +621,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Create table
 		_, err = tx.Exec(string(stmt))
 		if err != nil {
-			errApplyCreate = fmt.Errorf("There was an error creating table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyCreate = fmt.Errorf("There was an error creating table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyCreate)
 
 			return
@@ -621,7 +630,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Discard the tablespace
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " discard tablespace")
 		if err != nil {
-			errApplyDiscard = fmt.Errorf("There was an error discarding the tablespace for %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyDiscard = fmt.Errorf("There was an error discarding the tablespace for %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyDiscard)
 
 			return
@@ -630,7 +639,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Lock the table just in case
 		_, err = tx.Exec("lock table " + addQuotes(downloadInfo.table) + " write")
 		if err != nil {
-			errApplyLock = fmt.Errorf("There was an error locking table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyLock = fmt.Errorf("There was an error locking table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyLock)
 
 			return
@@ -640,7 +649,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		for _, triteFile := range downloadInfo.triteFiles {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
-				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s", downloadInfo.schema, downloadInfo.table)
+				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 				handleApplyError(tx, clientConfig, downloadInfo, errApplyRename)
 
 				return
@@ -651,7 +660,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Import the tablespace
 		_, err = tx.Exec("alter table " + addQuotes(downloadInfo.table) + " import tablespace")
 		if err != nil {
-			errApplyImport = fmt.Errorf("There was an error importing the tablespace for %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyImport = fmt.Errorf("There was an error importing the tablespace for %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyImport)
 
 			return
@@ -660,7 +669,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Analyze the table otherwise there will be no index statistics
 		_, err = tx.Exec("analyze local table " + addQuotes(downloadInfo.table))
 		if err != nil {
-			errApplyAnalyze = fmt.Errorf("There was an error analyzing table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyAnalyze = fmt.Errorf("There was an error analyzing table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyAnalyze)
 
 			return
@@ -669,7 +678,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Unlock the table
 		_, err = tx.Exec("unlock tables")
 		if err != nil {
-			errApplyUnlock = fmt.Errorf("There was an error unlocking table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyUnlock = fmt.Errorf("There was an error unlocking table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyUnlock)
 
 			return
@@ -683,7 +692,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		// Drop table if exists
 		_, err := tx.Exec("drop table if exists " + addQuotes(downloadInfo.table))
 		if err != nil {
-			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s", downloadInfo.schema, downloadInfo.table)
+			errApplyDrop = fmt.Errorf("There was an error dropping table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 			handleApplyError(tx, clientConfig, downloadInfo, errApplyDrop)
 
 			return
@@ -693,7 +702,7 @@ func applyTables(clientConfig clientConfigStruct, downloadInfo *downloadInfoStru
 		for _, triteFile := range downloadInfo.triteFiles {
 			err := os.Rename(triteFile, triteFile[:len(triteFile)-6])
 			if err != nil {
-				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s", downloadInfo.schema, downloadInfo.table)
+				errApplyRename = fmt.Errorf("There was an error renaming table %s.%s - %s", downloadInfo.schema, downloadInfo.table, err)
 				handleApplyError(tx, clientConfig, downloadInfo, errApplyRename)
 
 				return
@@ -749,12 +758,9 @@ func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo 
 
 	l := log.New(f, "APPLY ERROR\t", log.LstdFlags)
 	l.Println(applyErr)
+	l.Println("SHOW ENGINE INNODB STATUS output displayed to help debug the above apply error")
 	l.Println(innodbStatus)
-
-	// Print a few blank lines to separate the innodb status and processlist
-	for i := 0; i < 3; i++ {
-		l.Println()
-	}
+	l.Println("Processlist at the time of the error to help debug the above apply error")
 
 	// Tabwriter to make the processlist more readable
 	tw := new(tabwriter.Writer)
@@ -769,11 +775,6 @@ func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo 
 		fmt.Fprintln(tw, id, "\t", user, "\t", host, "\t", database, "\t", command, "\t", time, "\t", state, "\t", info)
 	}
 	tw.Flush()
-
-	// Print a few blank lines to separate errors
-	for i := 0; i < 10; i++ {
-		l.Println()
-	}
 
 	f.Close()
 
@@ -835,7 +836,7 @@ func handleApplyError(tx *sql.Tx, clientConfig clientConfigStruct, downloadInfo 
 }
 
 // applyObjects is a generic function for creating procedures, functions, views and triggers.
-func applyObjects(db *sql.DB, objectType string, schema string, taburl string) {
+func applyObjects(db *sql.DB, clientConfig clientConfigStruct, objectType string, schema string, taburl string) {
 	objectTypePlural := objectType + "s"
 
 	// Start transaction
@@ -886,12 +887,32 @@ func applyObjects(db *sql.DB, objectType string, schema string, taburl string) {
 
 			// Create object
 			_, err = tx.Exec(objInfo.Create)
-			checkErr(err)
-
+			if err != nil {
+				errObjectApply = fmt.Errorf("There was an error creating %s %s.%s - %s", objectType, schema, objInfo.Name, err)
+				handleObjectError(clientConfig, errObjectApply)
+			}
 		}
 	}
 
 	// Commit transaction
 	err = tx.Commit()
 	checkErr(err)
+}
+
+// handleObjectError deals with logging and notification of errors that may occur during the object applying phase
+func handleObjectError(clientConfig clientConfigStruct, applyErr error) {
+	// Log the error
+	var f *os.File
+	var err error
+	f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		f, err = os.OpenFile(clientConfig.errorLogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		checkErr(err)
+	}
+
+	l := log.New(f, "OBJECT APPLY ERROR\t", log.LstdFlags)
+	l.Println(applyErr)
+	f.Close()
+
+	incErrCount()
 }
