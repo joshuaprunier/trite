@@ -1,3 +1,8 @@
+# Project specific
+trite
+*.err
+*.swp
+
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
 *.a
