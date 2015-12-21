@@ -54,6 +54,7 @@ Trite has three modes of operation: client, dump or server
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
+    -tls: Use TLS, also enables cleartext passwords (default false)
     -triteServer: Server name or ip of the trite server
     -tritePort: Port of trite server (default 12000)
     -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
@@ -70,6 +71,7 @@ Trite has three modes of operation: client, dump or server
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
+    -tls: Use TLS, also enables cleartext passwords (default false)
     -dumpDir: Directory where dump files will be written (default current working directory)
 
     SERVER MODE

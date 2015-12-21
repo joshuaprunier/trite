@@ -26,6 +26,7 @@ func showUsage() {
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
+    -tls: Use TLS, also enables cleartext passwords (default false)
     -triteServer: Server name or ip of the trite server
     -tritePort: Port of trite server (default 12000)
     -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
@@ -42,6 +43,7 @@ func showUsage() {
     -host: MySQL server hostname or ip
     -socket: MySQL socket file (socket is preferred over tcp if provided along with host)
     -port: MySQL server port (default 3306)
+    -tls: Use TLS, also enables cleartext passwords (default false)
     -dumpDir: Directory where dump files will be written (default current working directory)
 
     SERVER MODE
@@ -78,6 +80,7 @@ func main() {
 	flagDbHost := f.String("host", "", "MySQL host")
 	flagDbPort := f.String("port", "3306", "MySQL port")
 	flagDbSock := f.String("socket", "", "MySQL socket")
+	flagDbTLS := f.Bool("tls", false, "MySQL socket")
 
 	// Client flags
 	flagClient := f.Bool("client", false, "Run client")
@@ -121,7 +124,7 @@ func main() {
 		*flagDbHost = "localhost"
 	}
 
-	dbi := mysqlCredentials{user: *flagDbUser, pass: *flagDbPass, host: *flagDbHost, port: *flagDbPort, sock: *flagDbSock}
+	dbi := mysqlCredentials{user: *flagDbUser, pass: *flagDbPass, host: *flagDbHost, port: *flagDbPort, sock: *flagDbSock, tls: *flagDbTLS}
 
 	// Detect what functionality is being requested
 	if *flagClient {

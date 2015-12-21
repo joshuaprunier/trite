@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	mysqlTimeout = "3600" // 1 hour - must be string
+	mysqlTimeout     = "3600" // 1 hour - must be string
+	mysqlWaitTimeout = "600"  // 10 minutes - Prevent disconnect when dumping thousands of tables
 
 	// Timeout length in seconds where ctrl+c is ignored.
 	signalTimeout = 3
-
-	mysqlWaitTimeout = "600" // 10 minutes - Prevent disconnect when dumping thousands of tables
 )
 
 type (
@@ -33,6 +32,7 @@ type (
 		port   string
 		sock   string
 		schema string
+		tls    bool
 		uid    int
 		gid    int
 	}
@@ -86,14 +86,22 @@ func (dbi *mysqlCredentials) connect() (*sql.DB, error) {
 		dbi.pass = string(pwd)
 	}
 
+	// Set MySQL driver parameters
+	dbParameters := "sql_log_bin=0&wait_timeout=" + mysqlTimeout + "&net_write_timeout=" + mysqlWaitTimeout
+
+	// Append cleartext and tls parameters if TLS is specified
+	if dbi.tls == true {
+		dbParameters = dbParameters + "&allowCleartextPasswords=1&tls=skip-verify"
+	}
+
 	// Determine tcp or socket connection
 	var db *sql.DB
 	var err error
 	if dbi.sock != "" {
-		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/"+dbi.schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/"+dbi.schema+"?"+dbParameters)
 		checkErr(err)
 	} else if dbi.host != "" {
-		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/"+dbi.schema+"?sql_log_bin=0&allowCleartextPasswords=1&tls=skip-verify&wait_timeout="+mysqlTimeout+"&net_write_timeout="+mysqlWaitTimeout)
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/"+dbi.schema+"?"+dbParameters)
 		checkErr(err)
 	}
 
