@@ -80,7 +80,7 @@ func main() {
 	flagDbHost := f.String("host", "", "MySQL host")
 	flagDbPort := f.String("port", "3306", "MySQL port")
 	flagDbSock := f.String("socket", "", "MySQL socket")
-	flagDbTLS := f.Bool("tls", false, "MySQL socket")
+	flagDbTLS := f.Bool("tls", false, "Enable TLS & cleartext passwords")
 
 	// Client flags
 	flagClient := f.Bool("client", false, "Run client")
