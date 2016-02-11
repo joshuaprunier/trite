@@ -122,7 +122,7 @@ func dumpSchema(db *sql.DB, dumpdir string, schema string) {
 	checkErr(err)
 }
 
-// dumpTables creates files containing table creation statments. It processes all tables for the schema passed to it. The /tables directory is hardcoded and expected by trite client code.
+// dumpTables creates files containing table creation statements. It processes all tables for the schema passed to it. The /tables directory is hardcoded and expected by trite client code.
 func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 	dir := path.Join(dumpdir, schema, "tables")
 	var err error
@@ -155,7 +155,7 @@ func dumpTables(db *sql.DB, dumpdir string, schema string) int {
 	return count
 }
 
-// dumpProcs creates files containing procedure creation statments. It processes all procedures for the schema passed to it. The /procedures directory is hardcoded and expected by trite client code.
+// dumpProcs creates files containing procedure creation statements. It processes all procedures for the schema passed to it. The /procedures directory is hardcoded and expected by trite client code.
 func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 	dir := path.Join(dumpdir, schema, "procedures")
 	var err error
@@ -191,7 +191,7 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 	return count
 }
 
-// dumpFuncs creates files containing function creation statments. It processes all functions for the schema passed to it. The /functions directory is hardcoded and expected by trite client code.
+// dumpFuncs creates files containing function creation statements. It processes all functions for the schema passed to it. The /functions directory is hardcoded and expected by trite client code.
 func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 	dir := path.Join(dumpdir, schema, "functions")
 	var err error
@@ -227,7 +227,7 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 	return count
 }
 
-// dumpTriggers creates files containing trigger creation statments. It processes all triggers for the schema passed to it. The /triggers directory is hardcoded and expected by trite client code.
+// dumpTriggers creates files containing trigger creation statements. It processes all triggers for the schema passed to it. The /triggers directory is hardcoded and expected by trite client code.
 func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 	dir := path.Join(dumpdir, schema, "triggers")
 	var err error
@@ -263,7 +263,7 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 	return count
 }
 
-// dumpViews creates files containing view creation statments. It processes all views for the schema passed to it. The /views directory is hardcoded and expected by trite client code.
+// dumpViews creates files containing view creation statements. It processes all views for the schema passed to it. The /views directory is hardcoded and expected by trite client code.
 func dumpViews(db *sql.DB, dumpdir string, schema string) int {
 	dir := path.Join(dumpdir, schema, "views")
 	var err error
