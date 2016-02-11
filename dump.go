@@ -90,7 +90,7 @@ func schemaList(db *sql.DB) []string {
 	checkErr(err)
 
 	// Get schema list
-	schemas := make([]string, 0)
+	var schemas []string
 	var database string
 	for rows.Next() {
 		err = rows.Scan(&database)
@@ -174,7 +174,7 @@ func dumpProcs(db *sql.DB, dumpdir string, schema string) int {
 		checkErr(err)
 
 		var procInfo createInfoStruct
-		err = db.QueryRow("show create procedure "+addQuotes(schema)+"."+addQuotes(procName)).Scan(&procInfo.Name, &procInfo.SqlMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
+		err = db.QueryRow("show create procedure "+addQuotes(schema)+"."+addQuotes(procName)).Scan(&procInfo.Name, &procInfo.SQLMode, &procInfo.Create, &procInfo.CharsetClient, &procInfo.Collation, &procInfo.DbCollation)
 		checkErr(err)
 
 		var jbyte []byte
@@ -210,7 +210,7 @@ func dumpFuncs(db *sql.DB, dumpdir string, schema string) int {
 		checkErr(err)
 
 		var funcInfo createInfoStruct
-		err = db.QueryRow("show create function "+addQuotes(schema)+"."+addQuotes(funcName)).Scan(&funcInfo.Name, &funcInfo.SqlMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
+		err = db.QueryRow("show create function "+addQuotes(schema)+"."+addQuotes(funcName)).Scan(&funcInfo.Name, &funcInfo.SQLMode, &funcInfo.Create, &funcInfo.CharsetClient, &funcInfo.Collation, &funcInfo.DbCollation)
 		checkErr(err)
 
 		var jbyte []byte
@@ -246,7 +246,7 @@ func dumpTriggers(db *sql.DB, dumpdir string, schema string) int {
 		checkErr(err)
 
 		var trigInfo createInfoStruct
-		err = db.QueryRow("show create trigger "+addQuotes(schema)+"."+addQuotes(trigName)).Scan(&trigInfo.Name, &trigInfo.SqlMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
+		err = db.QueryRow("show create trigger "+addQuotes(schema)+"."+addQuotes(trigName)).Scan(&trigInfo.Name, &trigInfo.SQLMode, &trigInfo.Create, &trigInfo.CharsetClient, &trigInfo.Collation, &trigInfo.DbCollation)
 		checkErr(err)
 
 		var jbyte []byte

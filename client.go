@@ -313,7 +313,7 @@ func checkHTTP(r *http.Response, url string) {
 
 // parseAnchor returns a string slice list of objects from an http.FileServer(). Trailing forward slashes from directories are removed.
 func parseAnchor(r *http.Response) []string {
-	txt := make([]string, 0)
+	var txt []string
 	tok := html.NewTokenizer(r.Body)
 
 	for {
@@ -353,7 +353,7 @@ func checkSchema(db *sql.DB, schema string, schemaCreateURL string) {
 func display(displayChan chan displayInfoStruct) {
 	var lastDisplayLength int
 	var currentDisplay displayInfoStruct
-	displayQueue := make([]displayInfoStruct, 0)
+	var displayQueue []displayInfoStruct
 
 	// Receive channel display events
 	for displayInfo := range displayChan {
@@ -381,7 +381,7 @@ func display(displayChan chan displayInfoStruct) {
 				if len(displayQueue) == 0 {
 					currentDisplay.fqTable = ""
 				} else {
-					tmpQueue := make([]displayInfoStruct, 0)
+					var tmpQueue []displayInfoStruct
 					for i := 0; i < len(displayQueue); i++ {
 						if displayQueue[i].status == "Restored" || displayQueue[i].status == "ERROR" {
 							line := fmt.Sprintf("%s: %s", displayQueue[i].status, displayQueue[i].fqTable)
@@ -460,7 +460,7 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 	checkErr(err)
 
 	var engine string
-	extensions := make([]string, 0)
+	var extensions []string
 	if resp.StatusCode == 200 {
 		engine = "InnoDB"
 
@@ -493,7 +493,7 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 	downloadInfo.extensions = extensions
 
 	// Loop through and download all files from extensions array
-	triteFiles := make([]string, 0)
+	var triteFiles []string
 	for _, extension := range extensions {
 		triteFile := filepath.Join(downloadInfo.mysqldir, schemaFilename, tableFilename+extension+".trite")
 		urlfile := downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
@@ -872,8 +872,8 @@ func applyObjects(db *sql.DB, clientConfig clientConfigStruct, objectType string
 			checkErr(err)
 
 			// Set session level variables to recreate stored code properly
-			if objInfo.SqlMode != "" {
-				_, err = tx.Exec("set session sql_mode = '" + objInfo.SqlMode + "'")
+			if objInfo.SQLMode != "" {
+				_, err = tx.Exec("set session sql_mode = '" + objInfo.SQLMode + "'")
 			}
 			if objInfo.CharsetClient != "" {
 				_, err = tx.Exec("set session character_set_client = '" + objInfo.CharsetClient + "'")

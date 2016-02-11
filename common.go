@@ -40,7 +40,7 @@ type (
 	// CreateInfoStruct stores creation information for procedures, functions, triggers and views
 	createInfoStruct struct {
 		Name          string
-		SqlMode       string
+		SQLMode       string
 		Create        string
 		CharsetClient string
 		Collation     string
