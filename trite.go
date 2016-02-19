@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"runtime"
 	"runtime/pprof"
 	"strconv"
 	"time"
@@ -131,16 +132,18 @@ func main() {
 		if *flagTriteServer == "" || *flagDbUser == "" {
 			showUsage()
 		} else {
-			// Confirm mysql user exists
-			mysqlUser, err := user.Lookup("mysql")
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
+			if runtime.GOOS != "windows" {
+				// Confirm mysql user exists
+				mysqlUser, err := user.Lookup("mysql")
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
 
-			// Get mysql uid & gid
-			dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
-			dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
+				// Get mysql uid & gid
+				dbi.uid, _ = strconv.Atoi(mysqlUser.Uid)
+				dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
+			}
 
 			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, triteMaxConnections: *flagTriteMaxConnections, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -518,9 +519,11 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 		checkErr(err)
 		defer fo.Close()
 
-		// Chown to mysql user
-		os.Chown(triteFile, downloadInfo.uid, downloadInfo.gid)
-		os.Chmod(triteFile, mysqlPerms)
+		if runtime.GOOS != "windows" {
+			// Chown to mysql user
+			os.Chown(triteFile, downloadInfo.uid, downloadInfo.gid)
+			os.Chmod(triteFile, mysqlPerms)
+		}
 
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
