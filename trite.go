@@ -33,6 +33,7 @@ func showUsage() {
     -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
     -errorLog: File where details of an error is written (default trite.err in current working directory)
     -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
+    -gz: Compress xtraBackup files for downloading across slower networks (default false)
 
     DUMP MODE
     =========
@@ -89,6 +90,7 @@ func main() {
 	flagTriteMaxConnections := f.Int("triteMaxConnections", 20, "Max concurrent trite db connections")
 	flagErrorLog := f.String("errorLog", wd+"/trite.err", "Error log file path")
 	flagProgressLimit := f.Int64("progressLimit", 5, "Progress will not be displayed for files smaller than progressLimit")
+	flagGz := f.Bool("gz", false, "Use the servers gz endpoint to download compressed files")
 
 	// Dump flags
 	flagDump := f.Bool("dump", false, "Run dump")
@@ -145,7 +147,7 @@ func main() {
 				dbi.gid, _ = strconv.Atoi(mysqlUser.Gid)
 			}
 
-			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, triteMaxConnections: *flagTriteMaxConnections, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit}
+			cliConfig := clientConfigStruct{triteServerURL: *flagTriteServer, triteServerPort: *flagTritePort, triteMaxConnections: *flagTriteMaxConnections, errorLogFile: *flagErrorLog, minDownloadProgressSize: *flagProgressLimit, gz: *flagGz}
 
 			startClient(cliConfig, &dbi)
 		}

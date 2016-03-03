@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/joshuaprunier/mysqlUTF8"
+	"github.com/klauspost/pgzip"
 
 	"golang.org/x/net/html"
 )
@@ -32,12 +33,14 @@ type (
 		triteMaxConnections     int
 		errorLogFile            string
 		minDownloadProgressSize int64
+		gz                      bool
 	}
 
 	downloadInfoStruct struct {
 		db            *sql.DB
 		taburl        string
 		backurl       string
+		gzurl         string
 		schema        string
 		table         string
 		encodedSchema string
@@ -154,6 +157,7 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 	// URL variables
 	taburl := "http://" + clientConfig.triteServerURL + ":" + clientConfig.triteServerPort + "/tables/"
 	backurl := "http://" + clientConfig.triteServerURL + ":" + clientConfig.triteServerPort + "/backups/"
+	gzurl := "http://" + clientConfig.triteServerURL + ":" + clientConfig.triteServerPort + "/gz/"
 
 	// Verify server urls are accessible
 	urls := []string{taburl, backurl}
@@ -214,6 +218,7 @@ func startClient(clientConfig clientConfigStruct, dbi *mysqlCredentials) {
 					db:          db,
 					taburl:      taburl,
 					backurl:     backurl,
+					gzurl:       gzurl,
 					schema:      schema,
 					table:       table[:len(table)-4],
 					mysqldir:    mysqldir,
@@ -497,7 +502,6 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 	var triteFiles []string
 	for _, extension := range extensions {
 		triteFile := filepath.Join(downloadInfo.mysqldir, schemaFilename, tableFilename+extension+".trite")
-		urlfile := downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
 
 		// Ensure the .exp exists if we expect it
 		// Checking this due to a bug encountered where XtraBackup did not create a tables .exp file
@@ -525,26 +529,56 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 			os.Chmod(triteFile, mysqlPerms)
 		}
 
+		//		type writeFlusher interface {
+		//			Write(p []byte) (nn int, err error)
+		//			Flush() error
+		//		}
+
+		var urlfile string
+		//		var w writeFlusher
+		if clientConfig.gz == true {
+			urlfile = downloadInfo.gzurl + path.Join(schemaFilename, tableFilename+extension)
+			//			w = pgzip.NewWriter(fo)
+		} else {
+			urlfile = downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
+			//			w = bufio.NewWriter(fo)
+		}
+
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
-		ibdresp, err := http.Get(urlfile)
-		checkHTTP(ibdresp, urlfile)
-		defer ibdresp.Body.Close()
+		resp, err := http.Get(urlfile)
+		fmt.Println(resp)
+		checkHTTP(resp, urlfile)
+		defer resp.Body.Close()
 		checkErr(err)
-		sizeServer := ibdresp.ContentLength
+		sizeServer := resp.ContentLength
+
+		var r io.Reader
+		if clientConfig.gz == true {
+			r, _ = pgzip.NewReader(resp.Body)
+		} else {
+			r = bufio.NewReader(resp.Body)
+		}
 
 		var sizeDown int64
 		if extension != ".exp" && sizeServer > clientConfig.minDownloadProgressSize*1073741824 {
 			progressReader := &reader{
-				reader:     ibdresp.Body,
-				size:       ibdresp.ContentLength,
+				reader:     r,
+				size:       resp.ContentLength,
 				drawFunc:   drawTerminalf(downloadInfo.displayInfo.w, drawTextFormatPercent),
 				drawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
 			}
+			//sizeDown, err = io.Copy(w, progressReader)
 			sizeDown, err = w.ReadFrom(progressReader)
+
 		} else {
-			sizeDown, err = w.ReadFrom(ibdresp.Body)
+			//sizeDown, err = io.Copy(w, r)
+			sizeDown, err = w.ReadFrom(r)
+
 		}
+		fmt.Println()
+		fmt.Println(sizeServer)
+		fmt.Println(sizeDown)
 		checkErr(err)
 		w.Flush()
 
@@ -561,6 +595,7 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 	}
 
 	downloadInfo.triteFiles = triteFiles
+	os.Exit(0)
 
 	// Call applyTables
 	go applyTables(clientConfig, &downloadInfo)
