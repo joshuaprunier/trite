@@ -36,7 +36,7 @@ func startServer(tablePath string, backupPath string, port string) {
 	http.HandleFunc("/", rootHandler)
 	http.Handle("/tables/", http.StripPrefix("/tables/", http.FileServer(http.Dir(tablePath))))
 	http.Handle("/backups/", http.StripPrefix("/backups/", http.FileServer(http.Dir(backupPath))))
-	http.Handle("/gz/", http.StripPrefix("/gz/", gzipHandler(http.FileServer(http.Dir(backupPath)))))
+	http.Handle("/gz/", http.StripPrefix("/gz/", gzHandler(http.FileServer(http.Dir(backupPath)))))
 	err := http.ListenAndServe(":"+port, nil)
 
 	// Check if port is already in use
@@ -94,24 +94,20 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	`)
 }
 
-type gzipResponseWriter struct {
-	io.Writer
+type gzResponseWriter struct {
 	http.ResponseWriter
+	io.Writer
 }
 
-func (w gzipResponseWriter) Write(b []byte) (int, error) {
+func (w gzResponseWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
-func gzipHandler(h http.Handler) http.Handler {
+func gzHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//w.Header().Set("Content-Type", "application/octet-stream")
-		//w.Header().Set("Content-Length", "-1")
-		//w.Header().Set("Transfer-Encoding", "chunked")
-		//w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Encoding", "identity")
 		gz := pgzip.NewWriter(w)
 		defer gz.Close()
-		gzr := gzipResponseWriter{Writer: gz, ResponseWriter: w}
-		h.ServeHTTP(gzr, r)
+		h.ServeHTTP(gzResponseWriter{ResponseWriter: w, Writer: gz}, r)
 	})
 }

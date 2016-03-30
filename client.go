@@ -529,29 +529,26 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 			os.Chmod(triteFile, mysqlPerms)
 		}
 
-		//		type writeFlusher interface {
-		//			Write(p []byte) (nn int, err error)
-		//			Flush() error
-		//		}
+		// Get the size of the file from the trite server here because the file may be compressed during download in which case the content length is -1
+		headfile := downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
+		head, err := http.Head(headfile)
+		checkHTTP(head, headfile)
+		checkErr(err)
+		sizeServer := head.ContentLength
 
 		var urlfile string
-		//		var w writeFlusher
 		if clientConfig.gz == true {
 			urlfile = downloadInfo.gzurl + path.Join(schemaFilename, tableFilename+extension)
-			//			w = pgzip.NewWriter(fo)
 		} else {
 			urlfile = downloadInfo.backurl + path.Join(schemaFilename, tableFilename+extension)
-			//			w = bufio.NewWriter(fo)
 		}
 
 		// Download files from trite server
 		w := bufio.NewWriter(fo)
 		resp, err := http.Get(urlfile)
-		fmt.Println(resp)
 		checkHTTP(resp, urlfile)
 		defer resp.Body.Close()
 		checkErr(err)
-		sizeServer := resp.ContentLength
 
 		var r io.Reader
 		if clientConfig.gz == true {
@@ -564,21 +561,17 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 		if extension != ".exp" && sizeServer > clientConfig.minDownloadProgressSize*1073741824 {
 			progressReader := &reader{
 				reader:     r,
-				size:       resp.ContentLength,
+				size:       sizeServer,
 				drawFunc:   drawTerminalf(downloadInfo.displayInfo.w, drawTextFormatPercent),
 				drawPrefix: "Downloading: " + downloadInfo.schema + "." + downloadInfo.table,
 			}
-			//sizeDown, err = io.Copy(w, progressReader)
 			sizeDown, err = w.ReadFrom(progressReader)
 
 		} else {
-			//sizeDown, err = io.Copy(w, r)
 			sizeDown, err = w.ReadFrom(r)
 
 		}
-		fmt.Println()
-		fmt.Println(sizeServer)
-		fmt.Println(sizeDown)
+
 		checkErr(err)
 		w.Flush()
 
@@ -595,7 +588,6 @@ func downloadTable(clientConfig clientConfigStruct, downloadInfo downloadInfoStr
 	}
 
 	downloadInfo.triteFiles = triteFiles
-	os.Exit(0)
 
 	// Call applyTables
 	go applyTables(clientConfig, &downloadInfo)
