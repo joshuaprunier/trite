@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof" // http server profiling
 	"os"
 	"strings"
+
+	"github.com/klauspost/pgzip"
 )
 
 // startServer receives a port number and a directory path for create definitions output by trite in dump mode and another directory path with an xtrabackup processed with the --export flag
@@ -33,6 +36,7 @@ func startServer(tablePath string, backupPath string, port string) {
 	http.HandleFunc("/", rootHandler)
 	http.Handle("/tables/", http.StripPrefix("/tables/", http.FileServer(http.Dir(tablePath))))
 	http.Handle("/backups/", http.StripPrefix("/backups/", http.FileServer(http.Dir(backupPath))))
+	http.Handle("/gz/", http.StripPrefix("/gz/", gzHandler(http.FileServer(http.Dir(backupPath)))))
 	err := http.ListenAndServe(":"+port, nil)
 
 	// Check if port is already in use
@@ -88,4 +92,23 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		</body>
 	</html>
 	`)
+}
+
+type gzResponseWriter struct {
+	http.ResponseWriter
+	io.Writer
+}
+
+func (w gzResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func gzHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "identity")
+		gz, err := pgzip.NewWriterLevel(w, pgzip.BestCompression)
+		checkErr(err)
+		defer gz.Close()
+		h.ServeHTTP(gzResponseWriter{ResponseWriter: w, Writer: gz}, r)
+	})
 }
