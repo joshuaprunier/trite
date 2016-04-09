@@ -60,6 +60,7 @@ Trite has three modes of operation: client, dump or server
     -triteMaxConnections: Maximum number of simultaneous database connections (default 20)
     -errorLog: File where details of an error is written (default trite.err in current working directory)
     -progressLimit: Limit size in GB that a file must be larger than for download progress to be displayed (default 5GB)
+    -gz: Compress xtraBackup files for downloading across slower networks (default false)
 
     DUMP MODE
     =========
@@ -97,6 +98,7 @@ Limitations & Caveats
 * The import process is very verbose and will pollute the MySQL error log with information for every table imported. Unfortunately there is no way to prevent this.
 * Import of compressed InnoDB tables is noted as "EXPERIMENTAL" but has worked just fine in my testing except for being rather slow.
 * Care should be taken customizing a restore. Problems may occur removing a table but not a trigger on it or not restoring a table referenced by another tables foreign key.
+* Max compression is used with the -gz flag and will use all available cores on the trite server.
 
 To Do
 -----
