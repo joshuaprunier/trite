@@ -106,7 +106,8 @@ func (w gzResponseWriter) Write(b []byte) (int, error) {
 func gzHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Encoding", "identity")
-		gz := pgzip.NewWriter(w)
+		gz, err := pgzip.NewWriterLevel(w, pgzip.BestCompression)
+		checkErr(err)
 		defer gz.Close()
 		h.ServeHTTP(gzResponseWriter{ResponseWriter: w, Writer: gz}, r)
 	})
